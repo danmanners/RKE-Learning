@@ -1,0 +1,5711 @@
+apiVersion: v1
+items:
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "1"
+    name: csi-cephfsplugin-provisioner
+    namespace: rook-ceph
+    ownerReferences:
+    - apiVersion: apps/v1
+      blockOwnerDeletion: false
+      controller: true
+      kind: Deployment
+      name: rook-ceph-operator
+    resourceVersion: "574908"
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 2
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: csi-cephfsplugin-provisioner
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: csi-cephfsplugin-provisioner
+          contains: csi-cephfsplugin-metrics
+      spec:
+        affinity:
+          nodeAffinity: {}
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - csi-cephfsplugin-provisioner
+              topologyKey: kubernetes.io/hostname
+        containers:
+        - args:
+          - --v=0
+          - --csi-address=$(ADDRESS)
+          - --leader-election=true
+          - --timeout=150s
+          - --leader-election-namespace=rook-ceph
+          env:
+          - name: ADDRESS
+            value: /csi/csi-provisioner.sock
+          image: quay.io/k8scsi/csi-attacher:v2.1.0
+          imagePullPolicy: IfNotPresent
+          name: csi-attacher
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /csi
+            name: socket-dir
+        - args:
+          - --csi-address=$(ADDRESS)
+          - --v=0
+          - --timeout=150s
+          - --leader-election=true
+          - --leader-election-namespace=rook-ceph
+          env:
+          - name: ADDRESS
+            value: unix:///csi/csi-provisioner.sock
+          image: quay.io/k8scsi/csi-snapshotter:v2.1.1
+          imagePullPolicy: IfNotPresent
+          name: csi-snapshotter
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /csi
+            name: socket-dir
+        - args:
+          - --csi-address=$(ADDRESS)
+          - --v=0
+          - --csiTimeout=150s
+          - --leader-election
+          - --leader-election-namespace=rook-ceph
+          env:
+          - name: ADDRESS
+            value: unix:///csi/csi-provisioner.sock
+          image: quay.io/k8scsi/csi-resizer:v0.4.0
+          imagePullPolicy: IfNotPresent
+          name: csi-resizer
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /csi
+            name: socket-dir
+        - args:
+          - --csi-address=$(ADDRESS)
+          - --v=0
+          - --timeout=150s
+          - --retry-interval-start=500ms
+          - --enable-leader-election=true
+          - --leader-election-type=leases
+          - --leader-election-namespace=rook-ceph
+          env:
+          - name: ADDRESS
+            value: unix:///csi/csi-provisioner.sock
+          image: quay.io/k8scsi/csi-provisioner:v1.6.0
+          imagePullPolicy: IfNotPresent
+          name: csi-provisioner
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /csi
+            name: socket-dir
+        - args:
+          - --nodeid=$(NODE_ID)
+          - --type=cephfs
+          - --endpoint=$(CSI_ENDPOINT)
+          - --v=0
+          - --controllerserver=true
+          - --drivername=rook-ceph.cephfs.csi.ceph.com
+          - --pidlimit=-1
+          - --metricsport=9091
+          - --forcecephkernelclient=true
+          - --metricspath=/metrics
+          - --enablegrpcmetrics=true
+          env:
+          - name: POD_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: NODE_ID
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+          - name: CSI_ENDPOINT
+            value: unix:///csi/csi-provisioner.sock
+          image: quay.io/cephcsi/cephcsi:v3.1.1
+          imagePullPolicy: IfNotPresent
+          name: csi-cephfsplugin
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /csi
+            name: socket-dir
+          - mountPath: /sys
+            name: host-sys
+          - mountPath: /lib/modules
+            name: lib-modules
+            readOnly: true
+          - mountPath: /dev
+            name: host-dev
+          - mountPath: /etc/ceph-csi-config/
+            name: ceph-csi-config
+          - mountPath: /tmp/csi/keys
+            name: keys-tmp-dir
+        - args:
+          - --type=liveness
+          - --endpoint=$(CSI_ENDPOINT)
+          - --metricsport=9081
+          - --metricspath=/metrics
+          - --polltime=60s
+          - --timeout=3s
+          env:
+          - name: CSI_ENDPOINT
+            value: unix:///csi/csi-provisioner.sock
+          - name: POD_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          image: quay.io/cephcsi/cephcsi:v3.1.1
+          imagePullPolicy: IfNotPresent
+          name: liveness-prometheus
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /csi
+            name: socket-dir
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        serviceAccount: rook-csi-cephfs-provisioner-sa
+        serviceAccountName: rook-csi-cephfs-provisioner-sa
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - emptyDir:
+            medium: Memory
+          name: socket-dir
+        - hostPath:
+            path: /sys
+            type: ""
+          name: host-sys
+        - hostPath:
+            path: /lib/modules
+            type: ""
+          name: lib-modules
+        - hostPath:
+            path: /dev
+            type: ""
+          name: host-dev
+        - configMap:
+            defaultMode: 420
+            items:
+            - key: csi-cluster-config-json
+              path: config.json
+            name: rook-ceph-csi-config
+          name: ceph-csi-config
+        - emptyDir:
+            medium: Memory
+          name: keys-tmp-dir
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "1"
+    name: csi-rbdplugin-provisioner
+    namespace: rook-ceph
+    ownerReferences:
+    - apiVersion: apps/v1
+      blockOwnerDeletion: false
+      controller: true
+      kind: Deployment
+      name: rook-ceph-operator
+    resourceVersion: "579115"
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 2
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: csi-rbdplugin-provisioner
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: csi-rbdplugin-provisioner
+          contains: csi-rbdplugin-metrics
+      spec:
+        affinity:
+          nodeAffinity: {}
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - csi-rbdplugin-provisioner
+              topologyKey: kubernetes.io/hostname
+        containers:
+        - args:
+          - --csi-address=$(ADDRESS)
+          - --v=0
+          - --timeout=150s
+          - --retry-interval-start=500ms
+          - --enable-leader-election=true
+          - --leader-election-type=leases
+          - --leader-election-namespace=rook-ceph
+          env:
+          - name: ADDRESS
+            value: unix:///csi/csi-provisioner.sock
+          image: quay.io/k8scsi/csi-provisioner:v1.6.0
+          imagePullPolicy: IfNotPresent
+          name: csi-provisioner
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /csi
+            name: socket-dir
+        - args:
+          - --csi-address=$(ADDRESS)
+          - --v=0
+          - --csiTimeout=150s
+          - --leader-election
+          - --leader-election-namespace=rook-ceph
+          env:
+          - name: ADDRESS
+            value: unix:///csi/csi-provisioner.sock
+          image: quay.io/k8scsi/csi-resizer:v0.4.0
+          imagePullPolicy: IfNotPresent
+          name: csi-resizer
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /csi
+            name: socket-dir
+        - args:
+          - --v=0
+          - --timeout=150s
+          - --csi-address=$(ADDRESS)
+          - --leader-election=true
+          - --leader-election-namespace=rook-ceph
+          env:
+          - name: ADDRESS
+            value: /csi/csi-provisioner.sock
+          image: quay.io/k8scsi/csi-attacher:v2.1.0
+          imagePullPolicy: IfNotPresent
+          name: csi-attacher
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /csi
+            name: socket-dir
+        - args:
+          - --csi-address=$(ADDRESS)
+          - --v=0
+          - --timeout=150s
+          - --leader-election=true
+          - --leader-election-namespace=rook-ceph
+          env:
+          - name: ADDRESS
+            value: unix:///csi/csi-provisioner.sock
+          image: quay.io/k8scsi/csi-snapshotter:v2.1.1
+          imagePullPolicy: IfNotPresent
+          name: csi-snapshotter
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /csi
+            name: socket-dir
+        - args:
+          - --nodeid=$(NODE_ID)
+          - --endpoint=$(CSI_ENDPOINT)
+          - --v=0
+          - --type=rbd
+          - --controllerserver=true
+          - --drivername=rook-ceph.rbd.csi.ceph.com
+          - --pidlimit=-1
+          - --metricsport=9090
+          - --metricspath=/metrics
+          - --enablegrpcmetrics=true
+          env:
+          - name: POD_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: NODE_ID
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+          - name: CSI_ENDPOINT
+            value: unix:///csi/csi-provisioner.sock
+          image: quay.io/cephcsi/cephcsi:v3.1.1
+          imagePullPolicy: IfNotPresent
+          name: csi-rbdplugin
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /csi
+            name: socket-dir
+          - mountPath: /dev
+            name: host-dev
+          - mountPath: /sys
+            name: host-sys
+          - mountPath: /lib/modules
+            name: lib-modules
+            readOnly: true
+          - mountPath: /etc/ceph-csi-config/
+            name: ceph-csi-config
+          - mountPath: /tmp/csi/keys
+            name: keys-tmp-dir
+        - args:
+          - --type=liveness
+          - --endpoint=$(CSI_ENDPOINT)
+          - --metricsport=9080
+          - --metricspath=/metrics
+          - --polltime=60s
+          - --timeout=3s
+          env:
+          - name: CSI_ENDPOINT
+            value: unix:///csi/csi-provisioner.sock
+          - name: POD_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          image: quay.io/cephcsi/cephcsi:v3.1.1
+          imagePullPolicy: IfNotPresent
+          name: liveness-prometheus
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /csi
+            name: socket-dir
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        serviceAccount: rook-csi-rbd-provisioner-sa
+        serviceAccountName: rook-csi-rbd-provisioner-sa
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - hostPath:
+            path: /dev
+            type: ""
+          name: host-dev
+        - hostPath:
+            path: /sys
+            type: ""
+          name: host-sys
+        - hostPath:
+            path: /lib/modules
+            type: ""
+          name: lib-modules
+        - emptyDir:
+            medium: Memory
+          name: socket-dir
+        - configMap:
+            defaultMode: 420
+            items:
+            - key: csi-cluster-config-json
+              path: config.json
+            name: rook-ceph-csi-config
+          name: ceph-csi-config
+        - emptyDir:
+            medium: Memory
+          name: keys-tmp-dir
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "2"
+    labels:
+      app: rook-ceph-crashcollector
+      ceph-version: 15.2.4-0
+      ceph_daemon_id: crash
+      crashcollector: crash
+      kubernetes.io/hostname: dev-k8s-node03
+      node_name: dev-k8s-node03
+      rook-version: v1.4.7
+      rook_cluster: rook-ceph
+    name: rook-ceph-crashcollector-dev-k8s-node03
+    namespace: rook-ceph
+    ownerReferences:
+    - apiVersion: ceph.rook.io/v1
+      blockOwnerDeletion: true
+      kind: CephCluster
+      name: rook-ceph
+    resourceVersion: "569350"
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: rook-ceph-crashcollector
+        kubernetes.io/hostname: dev-k8s-node03
+        node_name: dev-k8s-node03
+    strategy:
+      rollingUpdate:
+        maxSurge: 25%
+        maxUnavailable: 25%
+      type: RollingUpdate
+    template:
+      metadata:
+        labels:
+          app: rook-ceph-crashcollector
+          ceph-version: 15.2.4-0
+          ceph_daemon_id: crash
+          crashcollector: crash
+          kubernetes.io/hostname: dev-k8s-node03
+          node_name: dev-k8s-node03
+          rook-version: v1.4.7
+          rook_cluster: rook-ceph
+      spec:
+        containers:
+        - command:
+          - ceph-crash
+          env:
+          - name: CONTAINER_IMAGE
+            value: ceph/ceph:v15.2.4
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: POD_MEMORY_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: limits.memory
+          - name: POD_MEMORY_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.memory
+          - name: POD_CPU_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "1"
+                resource: limits.cpu
+          - name: POD_CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.cpu
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: ROOK_CEPH_MON_INITIAL_MEMBERS
+            valueFrom:
+              secretKeyRef:
+                key: mon_initial_members
+                name: rook-ceph-config
+          - name: CEPH_ARGS
+            value: -m $(ROOK_CEPH_MON_HOST) -k /etc/ceph/crash-collector-keyring-store/keyring
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: ceph-crash
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /etc/ceph/crash-collector-keyring-store/
+            name: rook-ceph-crash-collector-keyring
+            readOnly: true
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - args:
+          - /var/lib/ceph/crash/posted
+          command:
+          - mkdir
+          - -p
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: make-container-crash-dir
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+        - args:
+          - --verbose
+          - --recursive
+          - ceph:ceph
+          - /var/log/ceph
+          - /var/lib/ceph/crash
+          command:
+          - chown
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: chown-container-data-dir
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+        nodeSelector:
+          kubernetes.io/hostname: dev-k8s-node03
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+        tolerations:
+        - effect: NoExecute
+          key: node.kubernetes.io/not-ready
+          operator: Exists
+          tolerationSeconds: 300
+        - effect: NoExecute
+          key: node.kubernetes.io/unreachable
+          operator: Exists
+          tolerationSeconds: 300
+        volumes:
+        - configMap:
+            defaultMode: 420
+            items:
+            - key: config
+              mode: 292
+              path: ceph.conf
+            name: rook-config-override
+          name: rook-config-override
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/log
+            type: ""
+          name: rook-ceph-log
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/crash
+            type: ""
+          name: rook-ceph-crash
+        - name: rook-ceph-crash-collector-keyring
+          secret:
+            defaultMode: 420
+            secretName: rook-ceph-crash-collector-keyring
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "1"
+    labels:
+      app: rook-ceph-crashcollector
+      ceph-version: 15.2.4-0
+      ceph_daemon_id: crash
+      crashcollector: crash
+      kubernetes.io/hostname: dev-k8s-node04
+      node_name: dev-k8s-node04
+      rook-version: v1.4.7
+      rook_cluster: rook-ceph
+    name: rook-ceph-crashcollector-dev-k8s-node04
+    namespace: rook-ceph
+    ownerReferences:
+    - apiVersion: ceph.rook.io/v1
+      blockOwnerDeletion: true
+      kind: CephCluster
+      name: rook-ceph
+    resourceVersion: "574905"
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: rook-ceph-crashcollector
+        kubernetes.io/hostname: dev-k8s-node04
+        node_name: dev-k8s-node04
+    strategy:
+      rollingUpdate:
+        maxSurge: 25%
+        maxUnavailable: 25%
+      type: RollingUpdate
+    template:
+      metadata:
+        labels:
+          app: rook-ceph-crashcollector
+          ceph-version: 15.2.4-0
+          ceph_daemon_id: crash
+          crashcollector: crash
+          kubernetes.io/hostname: dev-k8s-node04
+          node_name: dev-k8s-node04
+          rook-version: v1.4.7
+          rook_cluster: rook-ceph
+      spec:
+        containers:
+        - command:
+          - ceph-crash
+          env:
+          - name: CONTAINER_IMAGE
+            value: ceph/ceph:v15.2.4
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: POD_MEMORY_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: limits.memory
+          - name: POD_MEMORY_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.memory
+          - name: POD_CPU_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "1"
+                resource: limits.cpu
+          - name: POD_CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.cpu
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: ROOK_CEPH_MON_INITIAL_MEMBERS
+            valueFrom:
+              secretKeyRef:
+                key: mon_initial_members
+                name: rook-ceph-config
+          - name: CEPH_ARGS
+            value: -m $(ROOK_CEPH_MON_HOST) -k /etc/ceph/crash-collector-keyring-store/keyring
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: ceph-crash
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /etc/ceph/crash-collector-keyring-store/
+            name: rook-ceph-crash-collector-keyring
+            readOnly: true
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - args:
+          - /var/lib/ceph/crash/posted
+          command:
+          - mkdir
+          - -p
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: make-container-crash-dir
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+        - args:
+          - --verbose
+          - --recursive
+          - ceph:ceph
+          - /var/log/ceph
+          - /var/lib/ceph/crash
+          command:
+          - chown
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: chown-container-data-dir
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+        nodeSelector:
+          kubernetes.io/hostname: dev-k8s-node04
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+        tolerations:
+        - effect: NoExecute
+          key: node.kubernetes.io/not-ready
+          operator: Exists
+          tolerationSeconds: 300
+        - effect: NoExecute
+          key: node.kubernetes.io/unreachable
+          operator: Exists
+          tolerationSeconds: 300
+        volumes:
+        - configMap:
+            defaultMode: 420
+            items:
+            - key: config
+              mode: 292
+              path: ceph.conf
+            name: rook-config-override
+          name: rook-config-override
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/log
+            type: ""
+          name: rook-ceph-log
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/crash
+            type: ""
+          name: rook-ceph-crash
+        - name: rook-ceph-crash-collector-keyring
+          secret:
+            defaultMode: 420
+            secretName: rook-ceph-crash-collector-keyring
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "1"
+    labels:
+      app: rook-ceph-crashcollector
+      ceph-version: 15.2.4-0
+      ceph_daemon_id: crash
+      crashcollector: crash
+      kubernetes.io/hostname: dev-k8s-node05
+      node_name: dev-k8s-node05
+      rook-version: v1.4.7
+      rook_cluster: rook-ceph
+    name: rook-ceph-crashcollector-dev-k8s-node05
+    namespace: rook-ceph
+    ownerReferences:
+    - apiVersion: ceph.rook.io/v1
+      blockOwnerDeletion: true
+      kind: CephCluster
+      name: rook-ceph
+    resourceVersion: "578479"
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: rook-ceph-crashcollector
+        kubernetes.io/hostname: dev-k8s-node05
+        node_name: dev-k8s-node05
+    strategy:
+      rollingUpdate:
+        maxSurge: 25%
+        maxUnavailable: 25%
+      type: RollingUpdate
+    template:
+      metadata:
+        labels:
+          app: rook-ceph-crashcollector
+          ceph-version: 15.2.4-0
+          ceph_daemon_id: crash
+          crashcollector: crash
+          kubernetes.io/hostname: dev-k8s-node05
+          node_name: dev-k8s-node05
+          rook-version: v1.4.7
+          rook_cluster: rook-ceph
+      spec:
+        containers:
+        - command:
+          - ceph-crash
+          env:
+          - name: CONTAINER_IMAGE
+            value: ceph/ceph:v15.2.4
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: POD_MEMORY_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: limits.memory
+          - name: POD_MEMORY_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.memory
+          - name: POD_CPU_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "1"
+                resource: limits.cpu
+          - name: POD_CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.cpu
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: ROOK_CEPH_MON_INITIAL_MEMBERS
+            valueFrom:
+              secretKeyRef:
+                key: mon_initial_members
+                name: rook-ceph-config
+          - name: CEPH_ARGS
+            value: -m $(ROOK_CEPH_MON_HOST) -k /etc/ceph/crash-collector-keyring-store/keyring
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: ceph-crash
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /etc/ceph/crash-collector-keyring-store/
+            name: rook-ceph-crash-collector-keyring
+            readOnly: true
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - args:
+          - /var/lib/ceph/crash/posted
+          command:
+          - mkdir
+          - -p
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: make-container-crash-dir
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+        - args:
+          - --verbose
+          - --recursive
+          - ceph:ceph
+          - /var/log/ceph
+          - /var/lib/ceph/crash
+          command:
+          - chown
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: chown-container-data-dir
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+        nodeSelector:
+          kubernetes.io/hostname: dev-k8s-node05
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+        tolerations:
+        - effect: NoExecute
+          key: node.kubernetes.io/not-ready
+          operator: Exists
+          tolerationSeconds: 300
+        - effect: NoExecute
+          key: node.kubernetes.io/unreachable
+          operator: Exists
+          tolerationSeconds: 300
+        volumes:
+        - configMap:
+            defaultMode: 420
+            items:
+            - key: config
+              mode: 292
+              path: ceph.conf
+            name: rook-config-override
+          name: rook-config-override
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/log
+            type: ""
+          name: rook-ceph-log
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/crash
+            type: ""
+          name: rook-ceph-crash
+        - name: rook-ceph-crash-collector-keyring
+          secret:
+            defaultMode: 420
+            secretName: rook-ceph-crash-collector-keyring
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "2"
+    labels:
+      app: rook-ceph-crashcollector
+      ceph-version: 15.2.4-0
+      ceph_daemon_id: crash
+      crashcollector: crash
+      kubernetes.io/hostname: dev-k8s-node06
+      node_name: dev-k8s-node06
+      rook-version: v1.4.7
+      rook_cluster: rook-ceph
+    name: rook-ceph-crashcollector-dev-k8s-node06
+    namespace: rook-ceph
+    ownerReferences:
+    - apiVersion: ceph.rook.io/v1
+      blockOwnerDeletion: true
+      kind: CephCluster
+      name: rook-ceph
+    resourceVersion: "9877"
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: rook-ceph-crashcollector
+        kubernetes.io/hostname: dev-k8s-node06
+        node_name: dev-k8s-node06
+    strategy:
+      rollingUpdate:
+        maxSurge: 25%
+        maxUnavailable: 25%
+      type: RollingUpdate
+    template:
+      metadata:
+        labels:
+          app: rook-ceph-crashcollector
+          ceph-version: 15.2.4-0
+          ceph_daemon_id: crash
+          crashcollector: crash
+          kubernetes.io/hostname: dev-k8s-node06
+          node_name: dev-k8s-node06
+          rook-version: v1.4.7
+          rook_cluster: rook-ceph
+      spec:
+        containers:
+        - command:
+          - ceph-crash
+          env:
+          - name: CONTAINER_IMAGE
+            value: ceph/ceph:v15.2.4
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: POD_MEMORY_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: limits.memory
+          - name: POD_MEMORY_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.memory
+          - name: POD_CPU_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "1"
+                resource: limits.cpu
+          - name: POD_CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.cpu
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: ROOK_CEPH_MON_INITIAL_MEMBERS
+            valueFrom:
+              secretKeyRef:
+                key: mon_initial_members
+                name: rook-ceph-config
+          - name: CEPH_ARGS
+            value: -m $(ROOK_CEPH_MON_HOST) -k /etc/ceph/crash-collector-keyring-store/keyring
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: ceph-crash
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /etc/ceph/crash-collector-keyring-store/
+            name: rook-ceph-crash-collector-keyring
+            readOnly: true
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - args:
+          - /var/lib/ceph/crash/posted
+          command:
+          - mkdir
+          - -p
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: make-container-crash-dir
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+        - args:
+          - --verbose
+          - --recursive
+          - ceph:ceph
+          - /var/log/ceph
+          - /var/lib/ceph/crash
+          command:
+          - chown
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: chown-container-data-dir
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+        nodeSelector:
+          kubernetes.io/hostname: dev-k8s-node06
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+        tolerations:
+        - effect: NoExecute
+          key: node.kubernetes.io/not-ready
+          operator: Exists
+          tolerationSeconds: 300
+        - effect: NoExecute
+          key: node.kubernetes.io/unreachable
+          operator: Exists
+          tolerationSeconds: 300
+        volumes:
+        - configMap:
+            defaultMode: 420
+            items:
+            - key: config
+              mode: 292
+              path: ceph.conf
+            name: rook-config-override
+          name: rook-config-override
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/log
+            type: ""
+          name: rook-ceph-log
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/crash
+            type: ""
+          name: rook-ceph-crash
+        - name: rook-ceph-crash-collector-keyring
+          secret:
+            defaultMode: 420
+            secretName: rook-ceph-crash-collector-keyring
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "1"
+    labels:
+      app: rook-ceph-crashcollector
+      ceph-version: 15.2.4-0
+      ceph_daemon_id: crash
+      crashcollector: crash
+      kubernetes.io/hostname: dev-k8s-node07
+      node_name: dev-k8s-node07
+      rook-version: v1.4.7
+      rook_cluster: rook-ceph
+    name: rook-ceph-crashcollector-dev-k8s-node07
+    namespace: rook-ceph
+    ownerReferences:
+    - apiVersion: ceph.rook.io/v1
+      blockOwnerDeletion: true
+      kind: CephCluster
+      name: rook-ceph
+    resourceVersion: "9494"
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: rook-ceph-crashcollector
+        kubernetes.io/hostname: dev-k8s-node07
+        node_name: dev-k8s-node07
+    strategy:
+      rollingUpdate:
+        maxSurge: 25%
+        maxUnavailable: 25%
+      type: RollingUpdate
+    template:
+      metadata:
+        labels:
+          app: rook-ceph-crashcollector
+          ceph-version: 15.2.4-0
+          ceph_daemon_id: crash
+          crashcollector: crash
+          kubernetes.io/hostname: dev-k8s-node07
+          node_name: dev-k8s-node07
+          rook-version: v1.4.7
+          rook_cluster: rook-ceph
+      spec:
+        containers:
+        - command:
+          - ceph-crash
+          env:
+          - name: CONTAINER_IMAGE
+            value: ceph/ceph:v15.2.4
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: POD_MEMORY_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: limits.memory
+          - name: POD_MEMORY_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.memory
+          - name: POD_CPU_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "1"
+                resource: limits.cpu
+          - name: POD_CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.cpu
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: ROOK_CEPH_MON_INITIAL_MEMBERS
+            valueFrom:
+              secretKeyRef:
+                key: mon_initial_members
+                name: rook-ceph-config
+          - name: CEPH_ARGS
+            value: -m $(ROOK_CEPH_MON_HOST) -k /etc/ceph/crash-collector-keyring-store/keyring
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: ceph-crash
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /etc/ceph/crash-collector-keyring-store/
+            name: rook-ceph-crash-collector-keyring
+            readOnly: true
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - args:
+          - /var/lib/ceph/crash/posted
+          command:
+          - mkdir
+          - -p
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: make-container-crash-dir
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+        - args:
+          - --verbose
+          - --recursive
+          - ceph:ceph
+          - /var/log/ceph
+          - /var/lib/ceph/crash
+          command:
+          - chown
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: chown-container-data-dir
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+        nodeSelector:
+          kubernetes.io/hostname: dev-k8s-node07
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+        tolerations:
+        - effect: NoExecute
+          key: node.kubernetes.io/not-ready
+          operator: Exists
+          tolerationSeconds: 300
+        - effect: NoExecute
+          key: node.kubernetes.io/unreachable
+          operator: Exists
+          tolerationSeconds: 300
+        volumes:
+        - configMap:
+            defaultMode: 420
+            items:
+            - key: config
+              mode: 292
+              path: ceph.conf
+            name: rook-config-override
+          name: rook-config-override
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/log
+            type: ""
+          name: rook-ceph-log
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/crash
+            type: ""
+          name: rook-ceph-crash
+        - name: rook-ceph-crash-collector-keyring
+          secret:
+            defaultMode: 420
+            secretName: rook-ceph-crash-collector-keyring
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "1"
+    labels:
+      app: rook-ceph-crashcollector
+      ceph-version: 15.2.4-0
+      ceph_daemon_id: crash
+      crashcollector: crash
+      kubernetes.io/hostname: dev-k8s-node08
+      node_name: dev-k8s-node08
+      rook-version: v1.4.7
+      rook_cluster: rook-ceph
+    name: rook-ceph-crashcollector-dev-k8s-node08
+    namespace: rook-ceph
+    ownerReferences:
+    - apiVersion: ceph.rook.io/v1
+      blockOwnerDeletion: true
+      kind: CephCluster
+      name: rook-ceph
+    resourceVersion: "574886"
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: rook-ceph-crashcollector
+        kubernetes.io/hostname: dev-k8s-node08
+        node_name: dev-k8s-node08
+    strategy:
+      rollingUpdate:
+        maxSurge: 25%
+        maxUnavailable: 25%
+      type: RollingUpdate
+    template:
+      metadata:
+        labels:
+          app: rook-ceph-crashcollector
+          ceph-version: 15.2.4-0
+          ceph_daemon_id: crash
+          crashcollector: crash
+          kubernetes.io/hostname: dev-k8s-node08
+          node_name: dev-k8s-node08
+          rook-version: v1.4.7
+          rook_cluster: rook-ceph
+      spec:
+        containers:
+        - command:
+          - ceph-crash
+          env:
+          - name: CONTAINER_IMAGE
+            value: ceph/ceph:v15.2.4
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: POD_MEMORY_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: limits.memory
+          - name: POD_MEMORY_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.memory
+          - name: POD_CPU_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "1"
+                resource: limits.cpu
+          - name: POD_CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.cpu
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: ROOK_CEPH_MON_INITIAL_MEMBERS
+            valueFrom:
+              secretKeyRef:
+                key: mon_initial_members
+                name: rook-ceph-config
+          - name: CEPH_ARGS
+            value: -m $(ROOK_CEPH_MON_HOST) -k /etc/ceph/crash-collector-keyring-store/keyring
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: ceph-crash
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /etc/ceph/crash-collector-keyring-store/
+            name: rook-ceph-crash-collector-keyring
+            readOnly: true
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - args:
+          - /var/lib/ceph/crash/posted
+          command:
+          - mkdir
+          - -p
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: make-container-crash-dir
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+        - args:
+          - --verbose
+          - --recursive
+          - ceph:ceph
+          - /var/log/ceph
+          - /var/lib/ceph/crash
+          command:
+          - chown
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: chown-container-data-dir
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+        nodeSelector:
+          kubernetes.io/hostname: dev-k8s-node08
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+        tolerations:
+        - effect: NoExecute
+          key: node.kubernetes.io/not-ready
+          operator: Exists
+          tolerationSeconds: 300
+        - effect: NoExecute
+          key: node.kubernetes.io/unreachable
+          operator: Exists
+          tolerationSeconds: 300
+        volumes:
+        - configMap:
+            defaultMode: 420
+            items:
+            - key: config
+              mode: 292
+              path: ceph.conf
+            name: rook-config-override
+          name: rook-config-override
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/log
+            type: ""
+          name: rook-ceph-log
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/crash
+            type: ""
+          name: rook-ceph-crash
+        - name: rook-ceph-crash-collector-keyring
+          secret:
+            defaultMode: 420
+            secretName: rook-ceph-crash-collector-keyring
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "1"
+    labels:
+      app: rook-ceph-crashcollector
+      ceph-version: 15.2.4-0
+      ceph_daemon_id: crash
+      crashcollector: crash
+      kubernetes.io/hostname: dev-k8s-node09
+      node_name: dev-k8s-node09
+      rook-version: v1.4.7
+      rook_cluster: rook-ceph
+    name: rook-ceph-crashcollector-dev-k8s-node09
+    namespace: rook-ceph
+    ownerReferences:
+    - apiVersion: ceph.rook.io/v1
+      blockOwnerDeletion: true
+      kind: CephCluster
+      name: rook-ceph
+    resourceVersion: "579185"
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: rook-ceph-crashcollector
+        kubernetes.io/hostname: dev-k8s-node09
+        node_name: dev-k8s-node09
+    strategy:
+      rollingUpdate:
+        maxSurge: 25%
+        maxUnavailable: 25%
+      type: RollingUpdate
+    template:
+      metadata:
+        labels:
+          app: rook-ceph-crashcollector
+          ceph-version: 15.2.4-0
+          ceph_daemon_id: crash
+          crashcollector: crash
+          kubernetes.io/hostname: dev-k8s-node09
+          node_name: dev-k8s-node09
+          rook-version: v1.4.7
+          rook_cluster: rook-ceph
+      spec:
+        containers:
+        - command:
+          - ceph-crash
+          env:
+          - name: CONTAINER_IMAGE
+            value: ceph/ceph:v15.2.4
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: POD_MEMORY_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: limits.memory
+          - name: POD_MEMORY_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.memory
+          - name: POD_CPU_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "1"
+                resource: limits.cpu
+          - name: POD_CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.cpu
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: ROOK_CEPH_MON_INITIAL_MEMBERS
+            valueFrom:
+              secretKeyRef:
+                key: mon_initial_members
+                name: rook-ceph-config
+          - name: CEPH_ARGS
+            value: -m $(ROOK_CEPH_MON_HOST) -k /etc/ceph/crash-collector-keyring-store/keyring
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: ceph-crash
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /etc/ceph/crash-collector-keyring-store/
+            name: rook-ceph-crash-collector-keyring
+            readOnly: true
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - args:
+          - /var/lib/ceph/crash/posted
+          command:
+          - mkdir
+          - -p
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: make-container-crash-dir
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+        - args:
+          - --verbose
+          - --recursive
+          - ceph:ceph
+          - /var/log/ceph
+          - /var/lib/ceph/crash
+          command:
+          - chown
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: chown-container-data-dir
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+        nodeSelector:
+          kubernetes.io/hostname: dev-k8s-node09
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+        tolerations:
+        - effect: NoExecute
+          key: node.kubernetes.io/not-ready
+          operator: Exists
+          tolerationSeconds: 300
+        - effect: NoExecute
+          key: node.kubernetes.io/unreachable
+          operator: Exists
+          tolerationSeconds: 300
+        volumes:
+        - configMap:
+            defaultMode: 420
+            items:
+            - key: config
+              mode: 292
+              path: ceph.conf
+            name: rook-config-override
+          name: rook-config-override
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/log
+            type: ""
+          name: rook-ceph-log
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/crash
+            type: ""
+          name: rook-ceph-crash
+        - name: rook-ceph-crash-collector-keyring
+          secret:
+            defaultMode: 420
+            secretName: rook-ceph-crash-collector-keyring
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "1"
+    labels:
+      app: rook-ceph-mgr
+      ceph-version: 15.2.4-0
+      ceph_daemon_id: a
+      ceph_daemon_type: mgr
+      instance: a
+      mgr: a
+      rook-version: v1.4.7
+      rook_cluster: rook-ceph
+    name: rook-ceph-mgr-a
+    namespace: rook-ceph
+    ownerReferences:
+    - apiVersion: ceph.rook.io/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: CephCluster
+      name: rook-ceph
+    resourceVersion: "574490"
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: rook-ceph-mgr
+        ceph_daemon_id: a
+        instance: a
+        mgr: a
+        rook_cluster: rook-ceph
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        annotations:
+          prometheus.io/port: "9283"
+          prometheus.io/scrape: "true"
+        labels:
+          app: rook-ceph-mgr
+          ceph_daemon_id: a
+          ceph_daemon_type: mgr
+          instance: a
+          mgr: a
+          rook_cluster: rook-ceph
+        name: rook-ceph-mgr-a
+      spec:
+        affinity: {}
+        containers:
+        - args:
+          - --fsid=46c3c3f8-016f-4d4a-9736-ee17764ab4db
+          - --keyring=/etc/ceph/keyring-store/keyring
+          - --log-to-stderr=true
+          - --err-to-stderr=true
+          - --mon-cluster-log-to-stderr=true
+          - '--log-stderr-prefix=debug '
+          - --default-log-to-file=false
+          - --default-mon-cluster-log-to-file=false
+          - --mon-host=$(ROOK_CEPH_MON_HOST)
+          - --mon-initial-members=$(ROOK_CEPH_MON_INITIAL_MEMBERS)
+          - --id=a
+          - --setuser=ceph
+          - --setgroup=ceph
+          - --client-mount-gid=0
+          - --foreground
+          - --public-addr=$(ROOK_POD_IP)
+          command:
+          - ceph-mgr
+          env:
+          - name: CONTAINER_IMAGE
+            value: ceph/ceph:v15.2.4
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: POD_MEMORY_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: limits.memory
+          - name: POD_MEMORY_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.memory
+          - name: POD_CPU_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "1"
+                resource: limits.cpu
+          - name: POD_CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.cpu
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: ROOK_CEPH_MON_INITIAL_MEMBERS
+            valueFrom:
+              secretKeyRef:
+                key: mon_initial_members
+                name: rook-ceph-config
+          - name: ROOK_OPERATOR_NAMESPACE
+            value: rook-ceph
+          - name: ROOK_CEPH_CLUSTER_CRD_VERSION
+            value: v1
+          - name: ROOK_CEPH_CLUSTER_CRD_NAME
+            value: rook-ceph
+          - name: ROOK_POD_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /
+              port: 9283
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          name: mgr
+          ports:
+          - containerPort: 6800
+            name: mgr
+            protocol: TCP
+          - containerPort: 9283
+            name: http-metrics
+            protocol: TCP
+          - containerPort: 8443
+            name: dashboard
+            protocol: TCP
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /etc/ceph/keyring-store/
+            name: rook-ceph-mgr-a-keyring
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /var/lib/ceph/mgr/ceph-a
+            name: ceph-daemon-data
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - args:
+          - --verbose
+          - --recursive
+          - ceph:ceph
+          - /var/log/ceph
+          - /var/lib/ceph/crash
+          - /var/lib/ceph/mgr/ceph-a
+          command:
+          - chown
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: chown-container-data-dir
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /etc/ceph/keyring-store/
+            name: rook-ceph-mgr-a-keyring
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /var/lib/ceph/mgr/ceph-a
+            name: ceph-daemon-data
+        - args:
+          - --fsid=46c3c3f8-016f-4d4a-9736-ee17764ab4db
+          - --keyring=/etc/ceph/admin-keyring-store/keyring
+          - --log-to-stderr=true
+          - --err-to-stderr=true
+          - --mon-cluster-log-to-stderr=true
+          - '--log-stderr-prefix=debug '
+          - --default-log-to-file=false
+          - --default-mon-cluster-log-to-file=false
+          - --mon-host=$(ROOK_CEPH_MON_HOST)
+          - --mon-initial-members=$(ROOK_CEPH_MON_INITIAL_MEMBERS)
+          - --setuser=ceph
+          - --setgroup=ceph
+          - config
+          - set
+          - mgr.a
+          - mgr/dashboard/a/server_addr
+          - $(ROOK_POD_IP)
+          - --force
+          - --verbose
+          command:
+          - ceph
+          env:
+          - name: CONTAINER_IMAGE
+            value: ceph/ceph:v15.2.4
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: POD_MEMORY_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: limits.memory
+          - name: POD_MEMORY_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.memory
+          - name: POD_CPU_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "1"
+                resource: limits.cpu
+          - name: POD_CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.cpu
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: ROOK_CEPH_MON_INITIAL_MEMBERS
+            valueFrom:
+              secretKeyRef:
+                key: mon_initial_members
+                name: rook-ceph-config
+          - name: ROOK_POD_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: ROOK_OPERATOR_NAMESPACE
+            value: rook-ceph
+          - name: ROOK_CEPH_CLUSTER_CRD_VERSION
+            value: v1
+          - name: ROOK_CEPH_CLUSTER_CRD_NAME
+            value: rook-ceph
+          - name: ROOK_POD_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: init-set-dashboard-server-addr
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /etc/ceph/keyring-store/
+            name: rook-ceph-mgr-a-keyring
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /var/lib/ceph/mgr/ceph-a
+            name: ceph-daemon-data
+          - mountPath: /etc/ceph/admin-keyring-store/
+            name: rook-ceph-admin-keyring
+            readOnly: true
+        - args:
+          - --fsid=46c3c3f8-016f-4d4a-9736-ee17764ab4db
+          - --keyring=/etc/ceph/admin-keyring-store/keyring
+          - --log-to-stderr=true
+          - --err-to-stderr=true
+          - --mon-cluster-log-to-stderr=true
+          - '--log-stderr-prefix=debug '
+          - --default-log-to-file=false
+          - --default-mon-cluster-log-to-file=false
+          - --mon-host=$(ROOK_CEPH_MON_HOST)
+          - --mon-initial-members=$(ROOK_CEPH_MON_INITIAL_MEMBERS)
+          - --setuser=ceph
+          - --setgroup=ceph
+          - config
+          - set
+          - mgr.a
+          - mgr/prometheus/a/server_addr
+          - $(ROOK_POD_IP)
+          - --force
+          - --verbose
+          command:
+          - ceph
+          env:
+          - name: CONTAINER_IMAGE
+            value: ceph/ceph:v15.2.4
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: POD_MEMORY_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: limits.memory
+          - name: POD_MEMORY_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.memory
+          - name: POD_CPU_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "1"
+                resource: limits.cpu
+          - name: POD_CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.cpu
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: ROOK_CEPH_MON_INITIAL_MEMBERS
+            valueFrom:
+              secretKeyRef:
+                key: mon_initial_members
+                name: rook-ceph-config
+          - name: ROOK_POD_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: ROOK_OPERATOR_NAMESPACE
+            value: rook-ceph
+          - name: ROOK_CEPH_CLUSTER_CRD_VERSION
+            value: v1
+          - name: ROOK_CEPH_CLUSTER_CRD_NAME
+            value: rook-ceph
+          - name: ROOK_POD_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: init-set-prometheus-server-addr
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /etc/ceph/keyring-store/
+            name: rook-ceph-mgr-a-keyring
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /var/lib/ceph/mgr/ceph-a
+            name: ceph-daemon-data
+          - mountPath: /etc/ceph/admin-keyring-store/
+            name: rook-ceph-admin-keyring
+            readOnly: true
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        serviceAccount: rook-ceph-mgr
+        serviceAccountName: rook-ceph-mgr
+        terminationGracePeriodSeconds: 30
+        tolerations:
+        - effect: NoExecute
+          key: node.kubernetes.io/unreachable
+          operator: Exists
+          tolerationSeconds: 5
+        volumes:
+        - configMap:
+            defaultMode: 420
+            items:
+            - key: config
+              mode: 292
+              path: ceph.conf
+            name: rook-config-override
+          name: rook-config-override
+        - name: rook-ceph-mgr-a-keyring
+          secret:
+            defaultMode: 420
+            secretName: rook-ceph-mgr-a-keyring
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/log
+            type: ""
+          name: rook-ceph-log
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/crash
+            type: ""
+          name: rook-ceph-crash
+        - emptyDir: {}
+          name: ceph-daemon-data
+        - name: rook-ceph-admin-keyring
+          secret:
+            defaultMode: 420
+            secretName: rook-ceph-admin-keyring
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "1"
+    labels:
+      app: rook-ceph-mon
+      ceph-version: 15.2.4-0
+      ceph_daemon_id: a
+      ceph_daemon_type: mon
+      mon: a
+      mon_cluster: rook-ceph
+      rook-version: v1.4.7
+      rook_cluster: rook-ceph
+    name: rook-ceph-mon-a
+    namespace: rook-ceph
+    ownerReferences:
+    - apiVersion: ceph.rook.io/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: CephCluster
+      name: rook-ceph
+    resourceVersion: "579213"
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: rook-ceph-mon
+        ceph_daemon_id: a
+        mon: a
+        mon_cluster: rook-ceph
+        rook_cluster: rook-ceph
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: rook-ceph-mon
+          ceph_daemon_id: a
+          ceph_daemon_type: mon
+          mon: a
+          mon_cluster: rook-ceph
+          rook_cluster: rook-ceph
+        name: rook-ceph-mon-a
+        namespace: rook-ceph
+      spec:
+        affinity: {}
+        containers:
+        - args:
+          - --fsid=46c3c3f8-016f-4d4a-9736-ee17764ab4db
+          - --keyring=/etc/ceph/keyring-store/keyring
+          - --log-to-stderr=true
+          - --err-to-stderr=true
+          - --mon-cluster-log-to-stderr=true
+          - '--log-stderr-prefix=debug '
+          - --default-log-to-file=false
+          - --default-mon-cluster-log-to-file=false
+          - --mon-host=$(ROOK_CEPH_MON_HOST)
+          - --mon-initial-members=$(ROOK_CEPH_MON_INITIAL_MEMBERS)
+          - --id=a
+          - --setuser=ceph
+          - --setgroup=ceph
+          - --foreground
+          - --public-addr=10.43.3.250
+          - --setuser-match-path=/var/lib/ceph/mon/ceph-a/store.db
+          - --public-bind-addr=$(ROOK_POD_IP)
+          command:
+          - ceph-mon
+          env:
+          - name: CONTAINER_IMAGE
+            value: ceph/ceph:v15.2.4
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: POD_MEMORY_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: limits.memory
+          - name: POD_MEMORY_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.memory
+          - name: POD_CPU_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "1"
+                resource: limits.cpu
+          - name: POD_CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.cpu
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: ROOK_CEPH_MON_INITIAL_MEMBERS
+            valueFrom:
+              secretKeyRef:
+                key: mon_initial_members
+                name: rook-ceph-config
+          - name: ROOK_POD_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            exec:
+              command:
+              - env
+              - -i
+              - sh
+              - -c
+              - ceph --admin-daemon /run/ceph/ceph-mon.a.asok mon_status
+            failureThreshold: 3
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          name: mon
+          ports:
+          - containerPort: 6789
+            name: tcp-msgr1
+            protocol: TCP
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /etc/ceph/keyring-store/
+            name: rook-ceph-mons-keyring
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /var/lib/ceph/mon/ceph-a
+            name: ceph-daemon-data
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - args:
+          - --verbose
+          - --recursive
+          - ceph:ceph
+          - /var/log/ceph
+          - /var/lib/ceph/crash
+          - /var/lib/ceph/mon/ceph-a
+          command:
+          - chown
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: chown-container-data-dir
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /etc/ceph/keyring-store/
+            name: rook-ceph-mons-keyring
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /var/lib/ceph/mon/ceph-a
+            name: ceph-daemon-data
+        - args:
+          - --fsid=46c3c3f8-016f-4d4a-9736-ee17764ab4db
+          - --keyring=/etc/ceph/keyring-store/keyring
+          - --log-to-stderr=true
+          - --err-to-stderr=true
+          - --mon-cluster-log-to-stderr=true
+          - '--log-stderr-prefix=debug '
+          - --default-log-to-file=false
+          - --default-mon-cluster-log-to-file=false
+          - --mon-host=$(ROOK_CEPH_MON_HOST)
+          - --mon-initial-members=$(ROOK_CEPH_MON_INITIAL_MEMBERS)
+          - --id=a
+          - --setuser=ceph
+          - --setgroup=ceph
+          - --public-addr=10.43.3.250
+          - --mkfs
+          command:
+          - ceph-mon
+          env:
+          - name: CONTAINER_IMAGE
+            value: ceph/ceph:v15.2.4
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: POD_MEMORY_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: limits.memory
+          - name: POD_MEMORY_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.memory
+          - name: POD_CPU_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "1"
+                resource: limits.cpu
+          - name: POD_CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.cpu
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: ROOK_CEPH_MON_INITIAL_MEMBERS
+            valueFrom:
+              secretKeyRef:
+                key: mon_initial_members
+                name: rook-ceph-config
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: init-mon-fs
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /etc/ceph/keyring-store/
+            name: rook-ceph-mons-keyring
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /var/lib/ceph/mon/ceph-a
+            name: ceph-daemon-data
+        nodeSelector:
+          kubernetes.io/hostname: dev-k8s-node09
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - configMap:
+            defaultMode: 420
+            items:
+            - key: config
+              mode: 292
+              path: ceph.conf
+            name: rook-config-override
+          name: rook-config-override
+        - name: rook-ceph-mons-keyring
+          secret:
+            defaultMode: 420
+            secretName: rook-ceph-mons-keyring
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/log
+            type: ""
+          name: rook-ceph-log
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/crash
+            type: ""
+          name: rook-ceph-crash
+        - hostPath:
+            path: /var/lib/rook/mon-a/data
+            type: ""
+          name: ceph-daemon-data
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "1"
+    labels:
+      app: rook-ceph-mon
+      ceph-version: 15.2.4-0
+      ceph_daemon_id: b
+      ceph_daemon_type: mon
+      mon: b
+      mon_cluster: rook-ceph
+      rook-version: v1.4.7
+      rook_cluster: rook-ceph
+    name: rook-ceph-mon-b
+    namespace: rook-ceph
+    ownerReferences:
+    - apiVersion: ceph.rook.io/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: CephCluster
+      name: rook-ceph
+    resourceVersion: "574843"
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: rook-ceph-mon
+        ceph_daemon_id: b
+        mon: b
+        mon_cluster: rook-ceph
+        rook_cluster: rook-ceph
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: rook-ceph-mon
+          ceph_daemon_id: b
+          ceph_daemon_type: mon
+          mon: b
+          mon_cluster: rook-ceph
+          rook_cluster: rook-ceph
+        name: rook-ceph-mon-b
+        namespace: rook-ceph
+      spec:
+        affinity: {}
+        containers:
+        - args:
+          - --fsid=46c3c3f8-016f-4d4a-9736-ee17764ab4db
+          - --keyring=/etc/ceph/keyring-store/keyring
+          - --log-to-stderr=true
+          - --err-to-stderr=true
+          - --mon-cluster-log-to-stderr=true
+          - '--log-stderr-prefix=debug '
+          - --default-log-to-file=false
+          - --default-mon-cluster-log-to-file=false
+          - --mon-host=$(ROOK_CEPH_MON_HOST)
+          - --mon-initial-members=$(ROOK_CEPH_MON_INITIAL_MEMBERS)
+          - --id=b
+          - --setuser=ceph
+          - --setgroup=ceph
+          - --foreground
+          - --public-addr=10.43.232.252
+          - --setuser-match-path=/var/lib/ceph/mon/ceph-b/store.db
+          - --public-bind-addr=$(ROOK_POD_IP)
+          command:
+          - ceph-mon
+          env:
+          - name: CONTAINER_IMAGE
+            value: ceph/ceph:v15.2.4
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: POD_MEMORY_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: limits.memory
+          - name: POD_MEMORY_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.memory
+          - name: POD_CPU_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "1"
+                resource: limits.cpu
+          - name: POD_CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.cpu
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: ROOK_CEPH_MON_INITIAL_MEMBERS
+            valueFrom:
+              secretKeyRef:
+                key: mon_initial_members
+                name: rook-ceph-config
+          - name: ROOK_POD_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            exec:
+              command:
+              - env
+              - -i
+              - sh
+              - -c
+              - ceph --admin-daemon /run/ceph/ceph-mon.b.asok mon_status
+            failureThreshold: 3
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          name: mon
+          ports:
+          - containerPort: 6789
+            name: tcp-msgr1
+            protocol: TCP
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /etc/ceph/keyring-store/
+            name: rook-ceph-mons-keyring
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /var/lib/ceph/mon/ceph-b
+            name: ceph-daemon-data
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - args:
+          - --verbose
+          - --recursive
+          - ceph:ceph
+          - /var/log/ceph
+          - /var/lib/ceph/crash
+          - /var/lib/ceph/mon/ceph-b
+          command:
+          - chown
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: chown-container-data-dir
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /etc/ceph/keyring-store/
+            name: rook-ceph-mons-keyring
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /var/lib/ceph/mon/ceph-b
+            name: ceph-daemon-data
+        - args:
+          - --fsid=46c3c3f8-016f-4d4a-9736-ee17764ab4db
+          - --keyring=/etc/ceph/keyring-store/keyring
+          - --log-to-stderr=true
+          - --err-to-stderr=true
+          - --mon-cluster-log-to-stderr=true
+          - '--log-stderr-prefix=debug '
+          - --default-log-to-file=false
+          - --default-mon-cluster-log-to-file=false
+          - --mon-host=$(ROOK_CEPH_MON_HOST)
+          - --mon-initial-members=$(ROOK_CEPH_MON_INITIAL_MEMBERS)
+          - --id=b
+          - --setuser=ceph
+          - --setgroup=ceph
+          - --public-addr=10.43.232.252
+          - --mkfs
+          command:
+          - ceph-mon
+          env:
+          - name: CONTAINER_IMAGE
+            value: ceph/ceph:v15.2.4
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: POD_MEMORY_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: limits.memory
+          - name: POD_MEMORY_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.memory
+          - name: POD_CPU_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "1"
+                resource: limits.cpu
+          - name: POD_CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.cpu
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: ROOK_CEPH_MON_INITIAL_MEMBERS
+            valueFrom:
+              secretKeyRef:
+                key: mon_initial_members
+                name: rook-ceph-config
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: init-mon-fs
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /etc/ceph/keyring-store/
+            name: rook-ceph-mons-keyring
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /var/lib/ceph/mon/ceph-b
+            name: ceph-daemon-data
+        nodeSelector:
+          kubernetes.io/hostname: dev-k8s-node08
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - configMap:
+            defaultMode: 420
+            items:
+            - key: config
+              mode: 292
+              path: ceph.conf
+            name: rook-config-override
+          name: rook-config-override
+        - name: rook-ceph-mons-keyring
+          secret:
+            defaultMode: 420
+            secretName: rook-ceph-mons-keyring
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/log
+            type: ""
+          name: rook-ceph-log
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/crash
+            type: ""
+          name: rook-ceph-crash
+        - hostPath:
+            path: /var/lib/rook/mon-b/data
+            type: ""
+          name: ceph-daemon-data
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "1"
+    labels:
+      app: rook-ceph-mon
+      ceph-version: 15.2.4-0
+      ceph_daemon_id: c
+      ceph_daemon_type: mon
+      mon: c
+      mon_cluster: rook-ceph
+      rook-version: v1.4.7
+      rook_cluster: rook-ceph
+    name: rook-ceph-mon-c
+    namespace: rook-ceph
+    ownerReferences:
+    - apiVersion: ceph.rook.io/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: CephCluster
+      name: rook-ceph
+    resourceVersion: "283700"
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: rook-ceph-mon
+        ceph_daemon_id: c
+        mon: c
+        mon_cluster: rook-ceph
+        rook_cluster: rook-ceph
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: rook-ceph-mon
+          ceph_daemon_id: c
+          ceph_daemon_type: mon
+          mon: c
+          mon_cluster: rook-ceph
+          rook_cluster: rook-ceph
+        name: rook-ceph-mon-c
+        namespace: rook-ceph
+      spec:
+        affinity: {}
+        containers:
+        - args:
+          - --fsid=46c3c3f8-016f-4d4a-9736-ee17764ab4db
+          - --keyring=/etc/ceph/keyring-store/keyring
+          - --log-to-stderr=true
+          - --err-to-stderr=true
+          - --mon-cluster-log-to-stderr=true
+          - '--log-stderr-prefix=debug '
+          - --default-log-to-file=false
+          - --default-mon-cluster-log-to-file=false
+          - --mon-host=$(ROOK_CEPH_MON_HOST)
+          - --mon-initial-members=$(ROOK_CEPH_MON_INITIAL_MEMBERS)
+          - --id=c
+          - --setuser=ceph
+          - --setgroup=ceph
+          - --foreground
+          - --public-addr=10.43.117.242
+          - --setuser-match-path=/var/lib/ceph/mon/ceph-c/store.db
+          - --public-bind-addr=$(ROOK_POD_IP)
+          command:
+          - ceph-mon
+          env:
+          - name: CONTAINER_IMAGE
+            value: ceph/ceph:v15.2.4
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: POD_MEMORY_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: limits.memory
+          - name: POD_MEMORY_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.memory
+          - name: POD_CPU_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "1"
+                resource: limits.cpu
+          - name: POD_CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.cpu
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: ROOK_CEPH_MON_INITIAL_MEMBERS
+            valueFrom:
+              secretKeyRef:
+                key: mon_initial_members
+                name: rook-ceph-config
+          - name: ROOK_POD_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            exec:
+              command:
+              - env
+              - -i
+              - sh
+              - -c
+              - ceph --admin-daemon /run/ceph/ceph-mon.c.asok mon_status
+            failureThreshold: 3
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          name: mon
+          ports:
+          - containerPort: 6789
+            name: tcp-msgr1
+            protocol: TCP
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /etc/ceph/keyring-store/
+            name: rook-ceph-mons-keyring
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /var/lib/ceph/mon/ceph-c
+            name: ceph-daemon-data
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - args:
+          - --verbose
+          - --recursive
+          - ceph:ceph
+          - /var/log/ceph
+          - /var/lib/ceph/crash
+          - /var/lib/ceph/mon/ceph-c
+          command:
+          - chown
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: chown-container-data-dir
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /etc/ceph/keyring-store/
+            name: rook-ceph-mons-keyring
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /var/lib/ceph/mon/ceph-c
+            name: ceph-daemon-data
+        - args:
+          - --fsid=46c3c3f8-016f-4d4a-9736-ee17764ab4db
+          - --keyring=/etc/ceph/keyring-store/keyring
+          - --log-to-stderr=true
+          - --err-to-stderr=true
+          - --mon-cluster-log-to-stderr=true
+          - '--log-stderr-prefix=debug '
+          - --default-log-to-file=false
+          - --default-mon-cluster-log-to-file=false
+          - --mon-host=$(ROOK_CEPH_MON_HOST)
+          - --mon-initial-members=$(ROOK_CEPH_MON_INITIAL_MEMBERS)
+          - --id=c
+          - --setuser=ceph
+          - --setgroup=ceph
+          - --public-addr=10.43.117.242
+          - --mkfs
+          command:
+          - ceph-mon
+          env:
+          - name: CONTAINER_IMAGE
+            value: ceph/ceph:v15.2.4
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: POD_MEMORY_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: limits.memory
+          - name: POD_MEMORY_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.memory
+          - name: POD_CPU_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "1"
+                resource: limits.cpu
+          - name: POD_CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.cpu
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: ROOK_CEPH_MON_INITIAL_MEMBERS
+            valueFrom:
+              secretKeyRef:
+                key: mon_initial_members
+                name: rook-ceph-config
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: init-mon-fs
+          resources: {}
+          securityContext:
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /etc/ceph/keyring-store/
+            name: rook-ceph-mons-keyring
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /var/lib/ceph/mon/ceph-c
+            name: ceph-daemon-data
+        nodeSelector:
+          kubernetes.io/hostname: dev-k8s-node07
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - configMap:
+            defaultMode: 420
+            items:
+            - key: config
+              mode: 292
+              path: ceph.conf
+            name: rook-config-override
+          name: rook-config-override
+        - name: rook-ceph-mons-keyring
+          secret:
+            defaultMode: 420
+            secretName: rook-ceph-mons-keyring
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/log
+            type: ""
+          name: rook-ceph-log
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/crash
+            type: ""
+          name: rook-ceph-crash
+        - hostPath:
+            path: /var/lib/rook/mon-c/data
+            type: ""
+          name: ceph-daemon-data
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "1"
+      meta.helm.sh/release-name: rook-ceph
+      meta.helm.sh/release-namespace: rook-ceph
+    labels:
+      app.kubernetes.io/managed-by: Helm
+      chart: rook-ceph-v1.4.7
+      operator: rook
+      storage-backend: ceph
+    name: rook-ceph-operator
+    namespace: rook-ceph
+    resourceVersion: "5319"
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: rook-ceph-operator
+    strategy:
+      rollingUpdate:
+        maxSurge: 25%
+        maxUnavailable: 25%
+      type: RollingUpdate
+    template:
+      metadata:
+        labels:
+          app: rook-ceph-operator
+          chart: rook-ceph-v1.4.7
+      spec:
+        containers:
+        - args:
+          - ceph
+          - operator
+          env:
+          - name: ROOK_CURRENT_NAMESPACE_ONLY
+            value: "false"
+          - name: ROOK_HOSTPATH_REQUIRES_PRIVILEGED
+            value: "false"
+          - name: ROOK_LOG_LEVEL
+            value: INFO
+          - name: ROOK_ENABLE_SELINUX_RELABELING
+            value: "true"
+          - name: ROOK_DISABLE_DEVICE_HOTPLUG
+            value: "false"
+          - name: ROOK_CSI_ENABLE_RBD
+            value: "true"
+          - name: ROOK_CSI_ENABLE_CEPHFS
+            value: "true"
+          - name: CSI_PLUGIN_PRIORITY_CLASSNAME
+          - name: CSI_PROVISIONER_PRIORITY_CLASSNAME
+          - name: ROOK_CSI_ENABLE_GRPC_METRICS
+            value: "true"
+          - name: CSI_FORCE_CEPHFS_KERNEL_CLIENT
+            value: "true"
+          - name: ROOK_ENABLE_FLEX_DRIVER
+            value: "false"
+          - name: ROOK_ENABLE_DISCOVERY_DAEMON
+            value: "true"
+          - name: ROOK_OBC_WATCH_OPERATOR_NAMESPACE
+            value: "true"
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+          - name: ROOK_UNREACHABLE_NODE_TOLERATION_SECONDS
+            value: "5"
+          image: rook/ceph:v1.4.7
+          imagePullPolicy: IfNotPresent
+          name: rook-ceph-operator
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        serviceAccount: rook-ceph-system
+        serviceAccountName: rook-ceph-system
+        terminationGracePeriodSeconds: 30
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "1"
+    labels:
+      app: rook-ceph-osd
+      ceph-osd-id: "0"
+      ceph-version: 15.2.4-0
+      ceph_daemon_id: "0"
+      ceph_daemon_type: osd
+      failure-domain: dev-k8s-node08
+      osd: "0"
+      portable: "false"
+      rook-version: v1.4.7
+      rook_cluster: rook-ceph
+    name: rook-ceph-osd-0
+    namespace: rook-ceph
+    ownerReferences:
+    - apiVersion: ceph.rook.io/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: CephCluster
+      name: rook-ceph
+    resourceVersion: "574882"
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: rook-ceph-osd
+        ceph-osd-id: "0"
+        rook_cluster: rook-ceph
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: rook-ceph-osd
+          ceph-osd-id: "0"
+          ceph_daemon_id: "0"
+          ceph_daemon_type: osd
+          failure-domain: dev-k8s-node08
+          osd: "0"
+          portable: "false"
+          rook_cluster: rook-ceph
+        name: rook-ceph-osd
+      spec:
+        affinity: {}
+        containers:
+        - args:
+          - --foreground
+          - --id
+          - "0"
+          - --fsid
+          - 46c3c3f8-016f-4d4a-9736-ee17764ab4db
+          - --setuser
+          - ceph
+          - --setgroup
+          - ceph
+          - --crush-location=root=default host=dev-k8s-node08
+          - --log-to-stderr=true
+          - --err-to-stderr=true
+          - --mon-cluster-log-to-stderr=true
+          - '--log-stderr-prefix=debug '
+          - --default-log-to-file=false
+          - --default-mon-cluster-log-to-file=false
+          - --ms-learn-addr-from-peer=false
+          command:
+          - ceph-osd
+          env:
+          - name: ROOK_NODE_NAME
+            value: dev-k8s-node08
+          - name: ROOK_CLUSTER_ID
+            value: d6d5792d-fce0-40df-9c71-9e335505ea9d
+          - name: ROOK_PRIVATE_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: ROOK_PUBLIC_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: POD_NAMESPACE
+            value: rook-ceph
+          - name: ROOK_MON_ENDPOINTS
+            valueFrom:
+              configMapKeyRef:
+                key: data
+                name: rook-ceph-mon-endpoints
+          - name: ROOK_MON_SECRET
+            valueFrom:
+              secretKeyRef:
+                key: mon-secret
+                name: rook-ceph-mon
+          - name: ROOK_CEPH_USERNAME
+            valueFrom:
+              secretKeyRef:
+                key: ceph-username
+                name: rook-ceph-mon
+          - name: ROOK_CEPH_SECRET
+            valueFrom:
+              secretKeyRef:
+                key: ceph-secret
+                name: rook-ceph-mon
+          - name: ROOK_CONFIG_DIR
+            value: /var/lib/rook
+          - name: ROOK_CEPH_CONFIG_OVERRIDE
+            value: /etc/rook/config/override.conf
+          - name: ROOK_FSID
+            valueFrom:
+              secretKeyRef:
+                key: fsid
+                name: rook-ceph-mon
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: ROOK_CRUSHMAP_HOSTNAME
+            value: dev-k8s-node08
+          - name: CEPH_VOLUME_DEBUG
+            value: "1"
+          - name: CEPH_VOLUME_SKIP_RESTORECON
+            value: "1"
+          - name: DM_DISABLE_UDEV
+            value: "1"
+          - name: ROOK_OSDS_PER_DEVICE
+            value: "1"
+          - name: TINI_SUBREAPER
+          - name: CONTAINER_IMAGE
+            value: ceph/ceph:v15.2.4
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_MEMORY_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: limits.memory
+          - name: POD_MEMORY_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.memory
+          - name: POD_CPU_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "1"
+                resource: limits.cpu
+          - name: POD_CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.cpu
+            value: 96130789-8afc-4985-b890-d65e1872e6da
+          - name: ROOK_OSD_ID
+            value: "0"
+          - name: ROOK_OSD_STORE_TYPE
+            value: bluestore
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: CEPH_ARGS
+            value: -m $(ROOK_CEPH_MON_HOST)
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            exec:
+              command:
+              - env
+              - -i
+              - sh
+              - -c
+              - ceph --admin-daemon /run/ceph/ceph-osd.0.asok status
+            failureThreshold: 3
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          name: osd
+          resources: {}
+          securityContext:
+            privileged: true
+            readOnlyRootFilesystem: false
+            runAsUser: 0
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /var/lib/rook
+            name: rook-data
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /dev
+            name: devices
+          - mountPath: /run/udev
+            name: run-udev
+          - mountPath: /var/lib/ceph/osd/ceph-0
+            name: activate-osd
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - command:
+          - /bin/bash
+          - -c
+            active the osd with ceph-volume\nif [[ \"$CV_MODE\" == \"lvm\" ]]; then\n\tTMP_DIR=$(mktemp
+            -d)\n\n\t# activate osd\n\tceph-volume \"$CV_MODE\" activate --no-systemd
+            to a temporary directory\n\t# this is needed because when the init container
+            exits, the tmpfs goes away and its content with it\n\t# this will result
+            in the emptydir to be empty when accessed by the main osd container\n\tcp
+            --verbose --no-dereference \"$OSD_DATA_DIR\"/* \"$TMP_DIR\"/\n\n\t# unmount
+            the tmpfs since we don't need it anymore\n\tumount \"$OSD_DATA_DIR\"\n\n\t#
+            copy back the content of the tmpfs into the original osd directory\n\tcp
+            --verbose --no-dereference \"$TMP_DIR\"/* \"$OSD_DATA_DIR\"\n\n\t# retain
+            ownership of files to the ceph user/group\n\tchown --verbose --recursive
+            ceph:ceph \"$OSD_DATA_DIR\"\n\n\t# remove the temporary directory\n\trm
+            --recursive --force \"$TMP_DIR\"\nelse\n\tARGS=(--device ${DEVICE} --no-systemd
+            --no-tmpfs)\n\tif [ -n \"$METADATA_DEVICE\" ]; then\n\t\tARGS+=(--block.db
+            ${METADATA_DEVICE})\n\tfi\n\tif [ -n \"$WAL_DEVICE\" ]; then\n\t\tARGS+=(--block.wal
+            ${WAL_DEVICE})\n\tfi\n\t# ceph-volume raw mode only supports bluestore
+            so we don't need to pass a store flag\n\tceph-volume \"$CV_MODE\" activate
+            \"${ARGS[@]}\"\nfi\n\n"
+          env:
+          - name: CEPH_VOLUME_DEBUG
+            value: "1"
+          - name: CEPH_VOLUME_SKIP_RESTORECON
+            value: "1"
+          - name: DM_DISABLE_UDEV
+            value: "1"
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: CEPH_ARGS
+            value: -m $(ROOK_CEPH_MON_HOST)
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: activate
+          resources: {}
+          securityContext:
+            privileged: true
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /var/lib/ceph/osd/ceph-0
+            name: activate-osd
+          - mountPath: /dev
+            name: devices
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+        - args:
+          - --verbose
+          - --recursive
+          - ceph:ceph
+          - /var/log/ceph
+          - /var/lib/ceph/crash
+          command:
+          - chown
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: chown-container-data-dir
+          resources: {}
+          securityContext:
+            privileged: true
+            readOnlyRootFilesystem: false
+            runAsUser: 0
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /var/lib/rook
+            name: rook-data
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /dev
+            name: devices
+          - mountPath: /run/udev
+            name: run-udev
+          - mountPath: /var/lib/ceph/osd/ceph-0
+            name: activate-osd
+        nodeSelector:
+          kubernetes.io/hostname: dev-k8s-node08
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        serviceAccount: rook-ceph-osd
+        serviceAccountName: rook-ceph-osd
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - hostPath:
+            path: /var/lib/rook
+            type: ""
+          name: rook-data
+        - configMap:
+            defaultMode: 420
+            items:
+            - key: config
+              mode: 292
+              path: ceph.conf
+            name: rook-config-override
+          name: rook-config-override
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/log
+            type: ""
+          name: rook-ceph-log
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/crash
+            type: ""
+          name: rook-ceph-crash
+        - hostPath:
+            path: /dev
+            type: ""
+          name: devices
+        - hostPath:
+            path: /run/udev
+            type: ""
+          name: run-udev
+        - emptyDir: {}
+          name: activate-osd
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "1"
+    labels:
+      app: rook-ceph-osd
+      ceph-osd-id: "1"
+      ceph-version: 15.2.4-0
+      ceph_daemon_id: "1"
+      ceph_daemon_type: osd
+      failure-domain: dev-k8s-node07
+      osd: "1"
+      portable: "false"
+      rook-version: v1.4.7
+      rook_cluster: rook-ceph
+    name: rook-ceph-osd-1
+    namespace: rook-ceph
+    ownerReferences:
+    - apiVersion: ceph.rook.io/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: CephCluster
+      name: rook-ceph
+    resourceVersion: "9472"
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: rook-ceph-osd
+        ceph-osd-id: "1"
+        rook_cluster: rook-ceph
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: rook-ceph-osd
+          ceph-osd-id: "1"
+          ceph_daemon_id: "1"
+          ceph_daemon_type: osd
+          failure-domain: dev-k8s-node07
+          osd: "1"
+          portable: "false"
+          rook_cluster: rook-ceph
+        name: rook-ceph-osd
+      spec:
+        affinity: {}
+        containers:
+        - args:
+          - --foreground
+          - --id
+          - "1"
+          - --fsid
+          - 46c3c3f8-016f-4d4a-9736-ee17764ab4db
+          - --setuser
+          - ceph
+          - --setgroup
+          - ceph
+          - --crush-location=root=default host=dev-k8s-node07
+          - --log-to-stderr=true
+          - --err-to-stderr=true
+          - --mon-cluster-log-to-stderr=true
+          - '--log-stderr-prefix=debug '
+          - --default-log-to-file=false
+          - --default-mon-cluster-log-to-file=false
+          - --ms-learn-addr-from-peer=false
+          command:
+          - ceph-osd
+          env:
+          - name: ROOK_NODE_NAME
+            value: dev-k8s-node07
+          - name: ROOK_CLUSTER_ID
+            value: d6d5792d-fce0-40df-9c71-9e335505ea9d
+          - name: ROOK_PRIVATE_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: ROOK_PUBLIC_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: POD_NAMESPACE
+            value: rook-ceph
+          - name: ROOK_MON_ENDPOINTS
+            valueFrom:
+              configMapKeyRef:
+                key: data
+                name: rook-ceph-mon-endpoints
+          - name: ROOK_MON_SECRET
+            valueFrom:
+              secretKeyRef:
+                key: mon-secret
+                name: rook-ceph-mon
+          - name: ROOK_CEPH_USERNAME
+            valueFrom:
+              secretKeyRef:
+                key: ceph-username
+                name: rook-ceph-mon
+          - name: ROOK_CEPH_SECRET
+            valueFrom:
+              secretKeyRef:
+                key: ceph-secret
+                name: rook-ceph-mon
+          - name: ROOK_CONFIG_DIR
+            value: /var/lib/rook
+          - name: ROOK_CEPH_CONFIG_OVERRIDE
+            value: /etc/rook/config/override.conf
+          - name: ROOK_FSID
+            valueFrom:
+              secretKeyRef:
+                key: fsid
+                name: rook-ceph-mon
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: ROOK_CRUSHMAP_HOSTNAME
+            value: dev-k8s-node07
+          - name: CEPH_VOLUME_DEBUG
+            value: "1"
+          - name: CEPH_VOLUME_SKIP_RESTORECON
+            value: "1"
+          - name: DM_DISABLE_UDEV
+            value: "1"
+          - name: ROOK_OSDS_PER_DEVICE
+            value: "1"
+          - name: TINI_SUBREAPER
+          - name: CONTAINER_IMAGE
+            value: ceph/ceph:v15.2.4
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_MEMORY_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: limits.memory
+          - name: POD_MEMORY_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.memory
+          - name: POD_CPU_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "1"
+                resource: limits.cpu
+          - name: POD_CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.cpu
+            value: db6a106e-9d9f-469e-ab9f-daeea090c0f2
+          - name: ROOK_OSD_ID
+            value: "1"
+          - name: ROOK_OSD_STORE_TYPE
+            value: bluestore
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: CEPH_ARGS
+            value: -m $(ROOK_CEPH_MON_HOST)
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            exec:
+              command:
+              - env
+              - -i
+              - sh
+              - -c
+              - ceph --admin-daemon /run/ceph/ceph-osd.1.asok status
+            failureThreshold: 3
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          name: osd
+          resources: {}
+          securityContext:
+            privileged: true
+            readOnlyRootFilesystem: false
+            runAsUser: 0
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /var/lib/rook
+            name: rook-data
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /dev
+            name: devices
+          - mountPath: /run/udev
+            name: run-udev
+          - mountPath: /var/lib/ceph/osd/ceph-1
+            name: activate-osd
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - command:
+          - /bin/bash
+          - -c
+            active the osd with ceph-volume\nif [[ \"$CV_MODE\" == \"lvm\" ]]; then\n\tTMP_DIR=$(mktemp
+            -d)\n\n\t# activate osd\n\tceph-volume \"$CV_MODE\" activate --no-systemd
+            to a temporary directory\n\t# this is needed because when the init container
+            exits, the tmpfs goes away and its content with it\n\t# this will result
+            in the emptydir to be empty when accessed by the main osd container\n\tcp
+            --verbose --no-dereference \"$OSD_DATA_DIR\"/* \"$TMP_DIR\"/\n\n\t# unmount
+            the tmpfs since we don't need it anymore\n\tumount \"$OSD_DATA_DIR\"\n\n\t#
+            copy back the content of the tmpfs into the original osd directory\n\tcp
+            --verbose --no-dereference \"$TMP_DIR\"/* \"$OSD_DATA_DIR\"\n\n\t# retain
+            ownership of files to the ceph user/group\n\tchown --verbose --recursive
+            ceph:ceph \"$OSD_DATA_DIR\"\n\n\t# remove the temporary directory\n\trm
+            --recursive --force \"$TMP_DIR\"\nelse\n\tARGS=(--device ${DEVICE} --no-systemd
+            --no-tmpfs)\n\tif [ -n \"$METADATA_DEVICE\" ]; then\n\t\tARGS+=(--block.db
+            ${METADATA_DEVICE})\n\tfi\n\tif [ -n \"$WAL_DEVICE\" ]; then\n\t\tARGS+=(--block.wal
+            ${WAL_DEVICE})\n\tfi\n\t# ceph-volume raw mode only supports bluestore
+            so we don't need to pass a store flag\n\tceph-volume \"$CV_MODE\" activate
+            \"${ARGS[@]}\"\nfi\n\n"
+          env:
+          - name: CEPH_VOLUME_DEBUG
+            value: "1"
+          - name: CEPH_VOLUME_SKIP_RESTORECON
+            value: "1"
+          - name: DM_DISABLE_UDEV
+            value: "1"
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: CEPH_ARGS
+            value: -m $(ROOK_CEPH_MON_HOST)
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: activate
+          resources: {}
+          securityContext:
+            privileged: true
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /var/lib/ceph/osd/ceph-1
+            name: activate-osd
+          - mountPath: /dev
+            name: devices
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+        - args:
+          - --verbose
+          - --recursive
+          - ceph:ceph
+          - /var/log/ceph
+          - /var/lib/ceph/crash
+          command:
+          - chown
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: chown-container-data-dir
+          resources: {}
+          securityContext:
+            privileged: true
+            readOnlyRootFilesystem: false
+            runAsUser: 0
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /var/lib/rook
+            name: rook-data
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /dev
+            name: devices
+          - mountPath: /run/udev
+            name: run-udev
+          - mountPath: /var/lib/ceph/osd/ceph-1
+            name: activate-osd
+        nodeSelector:
+          kubernetes.io/hostname: dev-k8s-node07
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        serviceAccount: rook-ceph-osd
+        serviceAccountName: rook-ceph-osd
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - hostPath:
+            path: /var/lib/rook
+            type: ""
+          name: rook-data
+        - configMap:
+            defaultMode: 420
+            items:
+            - key: config
+              mode: 292
+              path: ceph.conf
+            name: rook-config-override
+          name: rook-config-override
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/log
+            type: ""
+          name: rook-ceph-log
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/crash
+            type: ""
+          name: rook-ceph-crash
+        - hostPath:
+            path: /dev
+            type: ""
+          name: devices
+        - hostPath:
+            path: /run/udev
+            type: ""
+          name: run-udev
+        - emptyDir: {}
+          name: activate-osd
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "1"
+    labels:
+      app: rook-ceph-osd
+      ceph-osd-id: "2"
+      ceph-version: 15.2.4-0
+      ceph_daemon_id: "2"
+      ceph_daemon_type: osd
+      failure-domain: dev-k8s-node09
+      osd: "2"
+      portable: "false"
+      rook-version: v1.4.7
+      rook_cluster: rook-ceph
+    name: rook-ceph-osd-2
+    namespace: rook-ceph
+    ownerReferences:
+    - apiVersion: ceph.rook.io/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: CephCluster
+      name: rook-ceph
+    resourceVersion: "579195"
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: rook-ceph-osd
+        ceph-osd-id: "2"
+        rook_cluster: rook-ceph
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: rook-ceph-osd
+          ceph-osd-id: "2"
+          ceph_daemon_id: "2"
+          ceph_daemon_type: osd
+          failure-domain: dev-k8s-node09
+          osd: "2"
+          portable: "false"
+          rook_cluster: rook-ceph
+        name: rook-ceph-osd
+      spec:
+        affinity: {}
+        containers:
+        - args:
+          - --foreground
+          - --id
+          - "2"
+          - --fsid
+          - 46c3c3f8-016f-4d4a-9736-ee17764ab4db
+          - --setuser
+          - ceph
+          - --setgroup
+          - ceph
+          - --crush-location=root=default host=dev-k8s-node09
+          - --log-to-stderr=true
+          - --err-to-stderr=true
+          - --mon-cluster-log-to-stderr=true
+          - '--log-stderr-prefix=debug '
+          - --default-log-to-file=false
+          - --default-mon-cluster-log-to-file=false
+          - --ms-learn-addr-from-peer=false
+          command:
+          - ceph-osd
+          env:
+          - name: ROOK_NODE_NAME
+            value: dev-k8s-node09
+          - name: ROOK_CLUSTER_ID
+            value: d6d5792d-fce0-40df-9c71-9e335505ea9d
+          - name: ROOK_PRIVATE_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: ROOK_PUBLIC_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: POD_NAMESPACE
+            value: rook-ceph
+          - name: ROOK_MON_ENDPOINTS
+            valueFrom:
+              configMapKeyRef:
+                key: data
+                name: rook-ceph-mon-endpoints
+          - name: ROOK_MON_SECRET
+            valueFrom:
+              secretKeyRef:
+                key: mon-secret
+                name: rook-ceph-mon
+          - name: ROOK_CEPH_USERNAME
+            valueFrom:
+              secretKeyRef:
+                key: ceph-username
+                name: rook-ceph-mon
+          - name: ROOK_CEPH_SECRET
+            valueFrom:
+              secretKeyRef:
+                key: ceph-secret
+                name: rook-ceph-mon
+          - name: ROOK_CONFIG_DIR
+            value: /var/lib/rook
+          - name: ROOK_CEPH_CONFIG_OVERRIDE
+            value: /etc/rook/config/override.conf
+          - name: ROOK_FSID
+            valueFrom:
+              secretKeyRef:
+                key: fsid
+                name: rook-ceph-mon
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: ROOK_CRUSHMAP_HOSTNAME
+            value: dev-k8s-node09
+          - name: CEPH_VOLUME_DEBUG
+            value: "1"
+          - name: CEPH_VOLUME_SKIP_RESTORECON
+            value: "1"
+          - name: DM_DISABLE_UDEV
+            value: "1"
+          - name: ROOK_OSDS_PER_DEVICE
+            value: "1"
+          - name: TINI_SUBREAPER
+          - name: CONTAINER_IMAGE
+            value: ceph/ceph:v15.2.4
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_MEMORY_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: limits.memory
+          - name: POD_MEMORY_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.memory
+          - name: POD_CPU_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "1"
+                resource: limits.cpu
+          - name: POD_CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.cpu
+            value: 3c4ad609-d1d5-4825-b5a0-aec62510201c
+          - name: ROOK_OSD_ID
+            value: "2"
+          - name: ROOK_OSD_STORE_TYPE
+            value: bluestore
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: CEPH_ARGS
+            value: -m $(ROOK_CEPH_MON_HOST)
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            exec:
+              command:
+              - env
+              - -i
+              - sh
+              - -c
+              - ceph --admin-daemon /run/ceph/ceph-osd.2.asok status
+            failureThreshold: 3
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          name: osd
+          resources: {}
+          securityContext:
+            privileged: true
+            readOnlyRootFilesystem: false
+            runAsUser: 0
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /var/lib/rook
+            name: rook-data
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /dev
+            name: devices
+          - mountPath: /run/udev
+            name: run-udev
+          - mountPath: /var/lib/ceph/osd/ceph-2
+            name: activate-osd
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - command:
+          - /bin/bash
+          - -c
+            active the osd with ceph-volume\nif [[ \"$CV_MODE\" == \"lvm\" ]]; then\n\tTMP_DIR=$(mktemp
+            -d)\n\n\t# activate osd\n\tceph-volume \"$CV_MODE\" activate --no-systemd
+            to a temporary directory\n\t# this is needed because when the init container
+            exits, the tmpfs goes away and its content with it\n\t# this will result
+            in the emptydir to be empty when accessed by the main osd container\n\tcp
+            --verbose --no-dereference \"$OSD_DATA_DIR\"/* \"$TMP_DIR\"/\n\n\t# unmount
+            the tmpfs since we don't need it anymore\n\tumount \"$OSD_DATA_DIR\"\n\n\t#
+            copy back the content of the tmpfs into the original osd directory\n\tcp
+            --verbose --no-dereference \"$TMP_DIR\"/* \"$OSD_DATA_DIR\"\n\n\t# retain
+            ownership of files to the ceph user/group\n\tchown --verbose --recursive
+            ceph:ceph \"$OSD_DATA_DIR\"\n\n\t# remove the temporary directory\n\trm
+            --recursive --force \"$TMP_DIR\"\nelse\n\tARGS=(--device ${DEVICE} --no-systemd
+            --no-tmpfs)\n\tif [ -n \"$METADATA_DEVICE\" ]; then\n\t\tARGS+=(--block.db
+            ${METADATA_DEVICE})\n\tfi\n\tif [ -n \"$WAL_DEVICE\" ]; then\n\t\tARGS+=(--block.wal
+            ${WAL_DEVICE})\n\tfi\n\t# ceph-volume raw mode only supports bluestore
+            so we don't need to pass a store flag\n\tceph-volume \"$CV_MODE\" activate
+            \"${ARGS[@]}\"\nfi\n\n"
+          env:
+          - name: CEPH_VOLUME_DEBUG
+            value: "1"
+          - name: CEPH_VOLUME_SKIP_RESTORECON
+            value: "1"
+          - name: DM_DISABLE_UDEV
+            value: "1"
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: CEPH_ARGS
+            value: -m $(ROOK_CEPH_MON_HOST)
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: activate
+          resources: {}
+          securityContext:
+            privileged: true
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /var/lib/ceph/osd/ceph-2
+            name: activate-osd
+          - mountPath: /dev
+            name: devices
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+        - args:
+          - --verbose
+          - --recursive
+          - ceph:ceph
+          - /var/log/ceph
+          - /var/lib/ceph/crash
+          command:
+          - chown
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: chown-container-data-dir
+          resources: {}
+          securityContext:
+            privileged: true
+            readOnlyRootFilesystem: false
+            runAsUser: 0
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /var/lib/rook
+            name: rook-data
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /dev
+            name: devices
+          - mountPath: /run/udev
+            name: run-udev
+          - mountPath: /var/lib/ceph/osd/ceph-2
+            name: activate-osd
+        nodeSelector:
+          kubernetes.io/hostname: dev-k8s-node09
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        serviceAccount: rook-ceph-osd
+        serviceAccountName: rook-ceph-osd
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - hostPath:
+            path: /var/lib/rook
+            type: ""
+          name: rook-data
+        - configMap:
+            defaultMode: 420
+            items:
+            - key: config
+              mode: 292
+              path: ceph.conf
+            name: rook-config-override
+          name: rook-config-override
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/log
+            type: ""
+          name: rook-ceph-log
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/crash
+            type: ""
+          name: rook-ceph-crash
+        - hostPath:
+            path: /dev
+            type: ""
+          name: devices
+        - hostPath:
+            path: /run/udev
+            type: ""
+          name: run-udev
+        - emptyDir: {}
+          name: activate-osd
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "1"
+    labels:
+      app: rook-ceph-osd
+      ceph-osd-id: "3"
+      ceph-version: 15.2.4-0
+      ceph_daemon_id: "3"
+      ceph_daemon_type: osd
+      failure-domain: dev-k8s-node06
+      osd: "3"
+      portable: "false"
+      rook-version: v1.4.7
+      rook_cluster: rook-ceph
+    name: rook-ceph-osd-3
+    namespace: rook-ceph
+    ownerReferences:
+    - apiVersion: ceph.rook.io/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: CephCluster
+      name: rook-ceph
+    resourceVersion: "284388"
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: rook-ceph-osd
+        ceph-osd-id: "3"
+        rook_cluster: rook-ceph
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: rook-ceph-osd
+          ceph-osd-id: "3"
+          ceph_daemon_id: "3"
+          ceph_daemon_type: osd
+          failure-domain: dev-k8s-node06
+          osd: "3"
+          portable: "false"
+          rook_cluster: rook-ceph
+        name: rook-ceph-osd
+      spec:
+        affinity: {}
+        containers:
+        - args:
+          - --foreground
+          - --id
+          - "3"
+          - --fsid
+          - 46c3c3f8-016f-4d4a-9736-ee17764ab4db
+          - --setuser
+          - ceph
+          - --setgroup
+          - ceph
+          - --crush-location=root=default host=dev-k8s-node06
+          - --log-to-stderr=true
+          - --err-to-stderr=true
+          - --mon-cluster-log-to-stderr=true
+          - '--log-stderr-prefix=debug '
+          - --default-log-to-file=false
+          - --default-mon-cluster-log-to-file=false
+          - --ms-learn-addr-from-peer=false
+          command:
+          - ceph-osd
+          env:
+          - name: ROOK_NODE_NAME
+            value: dev-k8s-node06
+          - name: ROOK_CLUSTER_ID
+            value: d6d5792d-fce0-40df-9c71-9e335505ea9d
+          - name: ROOK_PRIVATE_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: ROOK_PUBLIC_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: POD_NAMESPACE
+            value: rook-ceph
+          - name: ROOK_MON_ENDPOINTS
+            valueFrom:
+              configMapKeyRef:
+                key: data
+                name: rook-ceph-mon-endpoints
+          - name: ROOK_MON_SECRET
+            valueFrom:
+              secretKeyRef:
+                key: mon-secret
+                name: rook-ceph-mon
+          - name: ROOK_CEPH_USERNAME
+            valueFrom:
+              secretKeyRef:
+                key: ceph-username
+                name: rook-ceph-mon
+          - name: ROOK_CEPH_SECRET
+            valueFrom:
+              secretKeyRef:
+                key: ceph-secret
+                name: rook-ceph-mon
+          - name: ROOK_CONFIG_DIR
+            value: /var/lib/rook
+          - name: ROOK_CEPH_CONFIG_OVERRIDE
+            value: /etc/rook/config/override.conf
+          - name: ROOK_FSID
+            valueFrom:
+              secretKeyRef:
+                key: fsid
+                name: rook-ceph-mon
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: ROOK_CRUSHMAP_HOSTNAME
+            value: dev-k8s-node06
+          - name: CEPH_VOLUME_DEBUG
+            value: "1"
+          - name: CEPH_VOLUME_SKIP_RESTORECON
+            value: "1"
+          - name: DM_DISABLE_UDEV
+            value: "1"
+          - name: ROOK_OSDS_PER_DEVICE
+            value: "1"
+          - name: TINI_SUBREAPER
+          - name: CONTAINER_IMAGE
+            value: ceph/ceph:v15.2.4
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_MEMORY_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: limits.memory
+          - name: POD_MEMORY_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.memory
+          - name: POD_CPU_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "1"
+                resource: limits.cpu
+          - name: POD_CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.cpu
+            value: d970f054-6b58-478a-a64a-b3323538f953
+          - name: ROOK_OSD_ID
+            value: "3"
+          - name: ROOK_OSD_STORE_TYPE
+            value: bluestore
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: CEPH_ARGS
+            value: -m $(ROOK_CEPH_MON_HOST)
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            exec:
+              command:
+              - env
+              - -i
+              - sh
+              - -c
+              - ceph --admin-daemon /run/ceph/ceph-osd.3.asok status
+            failureThreshold: 3
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          name: osd
+          resources: {}
+          securityContext:
+            privileged: true
+            readOnlyRootFilesystem: false
+            runAsUser: 0
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /var/lib/rook
+            name: rook-data
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /dev
+            name: devices
+          - mountPath: /run/udev
+            name: run-udev
+          - mountPath: /var/lib/ceph/osd/ceph-3
+            name: activate-osd
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - command:
+          - /bin/bash
+          - -c
+            active the osd with ceph-volume\nif [[ \"$CV_MODE\" == \"lvm\" ]]; then\n\tTMP_DIR=$(mktemp
+            -d)\n\n\t# activate osd\n\tceph-volume \"$CV_MODE\" activate --no-systemd
+            to a temporary directory\n\t# this is needed because when the init container
+            exits, the tmpfs goes away and its content with it\n\t# this will result
+            in the emptydir to be empty when accessed by the main osd container\n\tcp
+            --verbose --no-dereference \"$OSD_DATA_DIR\"/* \"$TMP_DIR\"/\n\n\t# unmount
+            the tmpfs since we don't need it anymore\n\tumount \"$OSD_DATA_DIR\"\n\n\t#
+            copy back the content of the tmpfs into the original osd directory\n\tcp
+            --verbose --no-dereference \"$TMP_DIR\"/* \"$OSD_DATA_DIR\"\n\n\t# retain
+            ownership of files to the ceph user/group\n\tchown --verbose --recursive
+            ceph:ceph \"$OSD_DATA_DIR\"\n\n\t# remove the temporary directory\n\trm
+            --recursive --force \"$TMP_DIR\"\nelse\n\tARGS=(--device ${DEVICE} --no-systemd
+            --no-tmpfs)\n\tif [ -n \"$METADATA_DEVICE\" ]; then\n\t\tARGS+=(--block.db
+            ${METADATA_DEVICE})\n\tfi\n\tif [ -n \"$WAL_DEVICE\" ]; then\n\t\tARGS+=(--block.wal
+            ${WAL_DEVICE})\n\tfi\n\t# ceph-volume raw mode only supports bluestore
+            so we don't need to pass a store flag\n\tceph-volume \"$CV_MODE\" activate
+            \"${ARGS[@]}\"\nfi\n\n"
+          env:
+          - name: CEPH_VOLUME_DEBUG
+            value: "1"
+          - name: CEPH_VOLUME_SKIP_RESTORECON
+            value: "1"
+          - name: DM_DISABLE_UDEV
+            value: "1"
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: CEPH_ARGS
+            value: -m $(ROOK_CEPH_MON_HOST)
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: activate
+          resources: {}
+          securityContext:
+            privileged: true
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /var/lib/ceph/osd/ceph-3
+            name: activate-osd
+          - mountPath: /dev
+            name: devices
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+        - args:
+          - --verbose
+          - --recursive
+          - ceph:ceph
+          - /var/log/ceph
+          - /var/lib/ceph/crash
+          command:
+          - chown
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: chown-container-data-dir
+          resources: {}
+          securityContext:
+            privileged: true
+            readOnlyRootFilesystem: false
+            runAsUser: 0
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /var/lib/rook
+            name: rook-data
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /dev
+            name: devices
+          - mountPath: /run/udev
+            name: run-udev
+          - mountPath: /var/lib/ceph/osd/ceph-3
+            name: activate-osd
+        nodeSelector:
+          kubernetes.io/hostname: dev-k8s-node06
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        serviceAccount: rook-ceph-osd
+        serviceAccountName: rook-ceph-osd
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - hostPath:
+            path: /var/lib/rook
+            type: ""
+          name: rook-data
+        - configMap:
+            defaultMode: 420
+            items:
+            - key: config
+              mode: 292
+              path: ceph.conf
+            name: rook-config-override
+          name: rook-config-override
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/log
+            type: ""
+          name: rook-ceph-log
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/crash
+            type: ""
+          name: rook-ceph-crash
+        - hostPath:
+            path: /dev
+            type: ""
+          name: devices
+        - hostPath:
+            path: /run/udev
+            type: ""
+          name: run-udev
+        - emptyDir: {}
+          name: activate-osd
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "1"
+    labels:
+      app: rook-ceph-osd
+      ceph-osd-id: "4"
+      ceph-version: 15.2.4-0
+      ceph_daemon_id: "4"
+      ceph_daemon_type: osd
+      failure-domain: dev-k8s-node05
+      osd: "4"
+      portable: "false"
+      rook-version: v1.4.7
+      rook_cluster: rook-ceph
+    name: rook-ceph-osd-4
+    namespace: rook-ceph
+    ownerReferences:
+    - apiVersion: ceph.rook.io/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: CephCluster
+      name: rook-ceph
+    resourceVersion: "578536"
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: rook-ceph-osd
+        ceph-osd-id: "4"
+        rook_cluster: rook-ceph
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: rook-ceph-osd
+          ceph-osd-id: "4"
+          ceph_daemon_id: "4"
+          ceph_daemon_type: osd
+          failure-domain: dev-k8s-node05
+          osd: "4"
+          portable: "false"
+          rook_cluster: rook-ceph
+        name: rook-ceph-osd
+      spec:
+        affinity: {}
+        containers:
+        - args:
+          - --foreground
+          - --id
+          - "4"
+          - --fsid
+          - 46c3c3f8-016f-4d4a-9736-ee17764ab4db
+          - --setuser
+          - ceph
+          - --setgroup
+          - ceph
+          - --crush-location=root=default host=dev-k8s-node05
+          - --log-to-stderr=true
+          - --err-to-stderr=true
+          - --mon-cluster-log-to-stderr=true
+          - '--log-stderr-prefix=debug '
+          - --default-log-to-file=false
+          - --default-mon-cluster-log-to-file=false
+          - --ms-learn-addr-from-peer=false
+          command:
+          - ceph-osd
+          env:
+          - name: ROOK_NODE_NAME
+            value: dev-k8s-node05
+          - name: ROOK_CLUSTER_ID
+            value: d6d5792d-fce0-40df-9c71-9e335505ea9d
+          - name: ROOK_PRIVATE_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: ROOK_PUBLIC_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: POD_NAMESPACE
+            value: rook-ceph
+          - name: ROOK_MON_ENDPOINTS
+            valueFrom:
+              configMapKeyRef:
+                key: data
+                name: rook-ceph-mon-endpoints
+          - name: ROOK_MON_SECRET
+            valueFrom:
+              secretKeyRef:
+                key: mon-secret
+                name: rook-ceph-mon
+          - name: ROOK_CEPH_USERNAME
+            valueFrom:
+              secretKeyRef:
+                key: ceph-username
+                name: rook-ceph-mon
+          - name: ROOK_CEPH_SECRET
+            valueFrom:
+              secretKeyRef:
+                key: ceph-secret
+                name: rook-ceph-mon
+          - name: ROOK_CONFIG_DIR
+            value: /var/lib/rook
+          - name: ROOK_CEPH_CONFIG_OVERRIDE
+            value: /etc/rook/config/override.conf
+          - name: ROOK_FSID
+            valueFrom:
+              secretKeyRef:
+                key: fsid
+                name: rook-ceph-mon
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: ROOK_CRUSHMAP_HOSTNAME
+            value: dev-k8s-node05
+          - name: CEPH_VOLUME_DEBUG
+            value: "1"
+          - name: CEPH_VOLUME_SKIP_RESTORECON
+            value: "1"
+          - name: DM_DISABLE_UDEV
+            value: "1"
+          - name: ROOK_OSDS_PER_DEVICE
+            value: "1"
+          - name: TINI_SUBREAPER
+          - name: CONTAINER_IMAGE
+            value: ceph/ceph:v15.2.4
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_MEMORY_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: limits.memory
+          - name: POD_MEMORY_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.memory
+          - name: POD_CPU_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "1"
+                resource: limits.cpu
+          - name: POD_CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.cpu
+            value: 6f8c100c-f99f-49ba-a3e0-5c586809ea54
+          - name: ROOK_OSD_ID
+            value: "4"
+          - name: ROOK_OSD_STORE_TYPE
+            value: bluestore
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: CEPH_ARGS
+            value: -m $(ROOK_CEPH_MON_HOST)
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            exec:
+              command:
+              - env
+              - -i
+              - sh
+              - -c
+              - ceph --admin-daemon /run/ceph/ceph-osd.4.asok status
+            failureThreshold: 3
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          name: osd
+          resources: {}
+          securityContext:
+            privileged: true
+            readOnlyRootFilesystem: false
+            runAsUser: 0
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /var/lib/rook
+            name: rook-data
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /dev
+            name: devices
+          - mountPath: /run/udev
+            name: run-udev
+          - mountPath: /var/lib/ceph/osd/ceph-4
+            name: activate-osd
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - command:
+          - /bin/bash
+          - -c
+            active the osd with ceph-volume\nif [[ \"$CV_MODE\" == \"lvm\" ]]; then\n\tTMP_DIR=$(mktemp
+            -d)\n\n\t# activate osd\n\tceph-volume \"$CV_MODE\" activate --no-systemd
+            to a temporary directory\n\t# this is needed because when the init container
+            exits, the tmpfs goes away and its content with it\n\t# this will result
+            in the emptydir to be empty when accessed by the main osd container\n\tcp
+            --verbose --no-dereference \"$OSD_DATA_DIR\"/* \"$TMP_DIR\"/\n\n\t# unmount
+            the tmpfs since we don't need it anymore\n\tumount \"$OSD_DATA_DIR\"\n\n\t#
+            copy back the content of the tmpfs into the original osd directory\n\tcp
+            --verbose --no-dereference \"$TMP_DIR\"/* \"$OSD_DATA_DIR\"\n\n\t# retain
+            ownership of files to the ceph user/group\n\tchown --verbose --recursive
+            ceph:ceph \"$OSD_DATA_DIR\"\n\n\t# remove the temporary directory\n\trm
+            --recursive --force \"$TMP_DIR\"\nelse\n\tARGS=(--device ${DEVICE} --no-systemd
+            --no-tmpfs)\n\tif [ -n \"$METADATA_DEVICE\" ]; then\n\t\tARGS+=(--block.db
+            ${METADATA_DEVICE})\n\tfi\n\tif [ -n \"$WAL_DEVICE\" ]; then\n\t\tARGS+=(--block.wal
+            ${WAL_DEVICE})\n\tfi\n\t# ceph-volume raw mode only supports bluestore
+            so we don't need to pass a store flag\n\tceph-volume \"$CV_MODE\" activate
+            \"${ARGS[@]}\"\nfi\n\n"
+          env:
+          - name: CEPH_VOLUME_DEBUG
+            value: "1"
+          - name: CEPH_VOLUME_SKIP_RESTORECON
+            value: "1"
+          - name: DM_DISABLE_UDEV
+            value: "1"
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: CEPH_ARGS
+            value: -m $(ROOK_CEPH_MON_HOST)
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: activate
+          resources: {}
+          securityContext:
+            privileged: true
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /var/lib/ceph/osd/ceph-4
+            name: activate-osd
+          - mountPath: /dev
+            name: devices
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+        - args:
+          - --verbose
+          - --recursive
+          - ceph:ceph
+          - /var/log/ceph
+          - /var/lib/ceph/crash
+          command:
+          - chown
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: chown-container-data-dir
+          resources: {}
+          securityContext:
+            privileged: true
+            readOnlyRootFilesystem: false
+            runAsUser: 0
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /var/lib/rook
+            name: rook-data
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /dev
+            name: devices
+          - mountPath: /run/udev
+            name: run-udev
+          - mountPath: /var/lib/ceph/osd/ceph-4
+            name: activate-osd
+        nodeSelector:
+          kubernetes.io/hostname: dev-k8s-node05
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        serviceAccount: rook-ceph-osd
+        serviceAccountName: rook-ceph-osd
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - hostPath:
+            path: /var/lib/rook
+            type: ""
+          name: rook-data
+        - configMap:
+            defaultMode: 420
+            items:
+            - key: config
+              mode: 292
+              path: ceph.conf
+            name: rook-config-override
+          name: rook-config-override
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/log
+            type: ""
+          name: rook-ceph-log
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/crash
+            type: ""
+          name: rook-ceph-crash
+        - hostPath:
+            path: /dev
+            type: ""
+          name: devices
+        - hostPath:
+            path: /run/udev
+            type: ""
+          name: run-udev
+        - emptyDir: {}
+          name: activate-osd
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "1"
+    labels:
+      app: rook-ceph-osd
+      ceph-osd-id: "5"
+      ceph-version: 15.2.4-0
+      ceph_daemon_id: "5"
+      ceph_daemon_type: osd
+      failure-domain: dev-k8s-node04
+      osd: "5"
+      portable: "false"
+      rook-version: v1.4.7
+      rook_cluster: rook-ceph
+    name: rook-ceph-osd-5
+    namespace: rook-ceph
+    ownerReferences:
+    - apiVersion: ceph.rook.io/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: CephCluster
+      name: rook-ceph
+    resourceVersion: "574983"
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: rook-ceph-osd
+        ceph-osd-id: "5"
+        rook_cluster: rook-ceph
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: rook-ceph-osd
+          ceph-osd-id: "5"
+          ceph_daemon_id: "5"
+          ceph_daemon_type: osd
+          failure-domain: dev-k8s-node04
+          osd: "5"
+          portable: "false"
+          rook_cluster: rook-ceph
+        name: rook-ceph-osd
+      spec:
+        affinity: {}
+        containers:
+        - args:
+          - --foreground
+          - --id
+          - "5"
+          - --fsid
+          - 46c3c3f8-016f-4d4a-9736-ee17764ab4db
+          - --setuser
+          - ceph
+          - --setgroup
+          - ceph
+          - --crush-location=root=default host=dev-k8s-node04
+          - --log-to-stderr=true
+          - --err-to-stderr=true
+          - --mon-cluster-log-to-stderr=true
+          - '--log-stderr-prefix=debug '
+          - --default-log-to-file=false
+          - --default-mon-cluster-log-to-file=false
+          - --ms-learn-addr-from-peer=false
+          command:
+          - ceph-osd
+          env:
+          - name: ROOK_NODE_NAME
+            value: dev-k8s-node04
+          - name: ROOK_CLUSTER_ID
+            value: d6d5792d-fce0-40df-9c71-9e335505ea9d
+          - name: ROOK_PRIVATE_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: ROOK_PUBLIC_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: POD_NAMESPACE
+            value: rook-ceph
+          - name: ROOK_MON_ENDPOINTS
+            valueFrom:
+              configMapKeyRef:
+                key: data
+                name: rook-ceph-mon-endpoints
+          - name: ROOK_MON_SECRET
+            valueFrom:
+              secretKeyRef:
+                key: mon-secret
+                name: rook-ceph-mon
+          - name: ROOK_CEPH_USERNAME
+            valueFrom:
+              secretKeyRef:
+                key: ceph-username
+                name: rook-ceph-mon
+          - name: ROOK_CEPH_SECRET
+            valueFrom:
+              secretKeyRef:
+                key: ceph-secret
+                name: rook-ceph-mon
+          - name: ROOK_CONFIG_DIR
+            value: /var/lib/rook
+          - name: ROOK_CEPH_CONFIG_OVERRIDE
+            value: /etc/rook/config/override.conf
+          - name: ROOK_FSID
+            valueFrom:
+              secretKeyRef:
+                key: fsid
+                name: rook-ceph-mon
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: ROOK_CRUSHMAP_HOSTNAME
+            value: dev-k8s-node04
+          - name: CEPH_VOLUME_DEBUG
+            value: "1"
+          - name: CEPH_VOLUME_SKIP_RESTORECON
+            value: "1"
+          - name: DM_DISABLE_UDEV
+            value: "1"
+          - name: ROOK_OSDS_PER_DEVICE
+            value: "1"
+          - name: TINI_SUBREAPER
+          - name: CONTAINER_IMAGE
+            value: ceph/ceph:v15.2.4
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_MEMORY_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: limits.memory
+          - name: POD_MEMORY_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.memory
+          - name: POD_CPU_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "1"
+                resource: limits.cpu
+          - name: POD_CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.cpu
+            value: 6c9da1db-5964-4d42-b095-3da49c374ac6
+          - name: ROOK_OSD_ID
+            value: "5"
+          - name: ROOK_OSD_STORE_TYPE
+            value: bluestore
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: CEPH_ARGS
+            value: -m $(ROOK_CEPH_MON_HOST)
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            exec:
+              command:
+              - env
+              - -i
+              - sh
+              - -c
+              - ceph --admin-daemon /run/ceph/ceph-osd.5.asok status
+            failureThreshold: 3
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          name: osd
+          resources: {}
+          securityContext:
+            privileged: true
+            readOnlyRootFilesystem: false
+            runAsUser: 0
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /var/lib/rook
+            name: rook-data
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /dev
+            name: devices
+          - mountPath: /run/udev
+            name: run-udev
+          - mountPath: /var/lib/ceph/osd/ceph-5
+            name: activate-osd
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - command:
+          - /bin/bash
+          - -c
+            active the osd with ceph-volume\nif [[ \"$CV_MODE\" == \"lvm\" ]]; then\n\tTMP_DIR=$(mktemp
+            -d)\n\n\t# activate osd\n\tceph-volume \"$CV_MODE\" activate --no-systemd
+            to a temporary directory\n\t# this is needed because when the init container
+            exits, the tmpfs goes away and its content with it\n\t# this will result
+            in the emptydir to be empty when accessed by the main osd container\n\tcp
+            --verbose --no-dereference \"$OSD_DATA_DIR\"/* \"$TMP_DIR\"/\n\n\t# unmount
+            the tmpfs since we don't need it anymore\n\tumount \"$OSD_DATA_DIR\"\n\n\t#
+            copy back the content of the tmpfs into the original osd directory\n\tcp
+            --verbose --no-dereference \"$TMP_DIR\"/* \"$OSD_DATA_DIR\"\n\n\t# retain
+            ownership of files to the ceph user/group\n\tchown --verbose --recursive
+            ceph:ceph \"$OSD_DATA_DIR\"\n\n\t# remove the temporary directory\n\trm
+            --recursive --force \"$TMP_DIR\"\nelse\n\tARGS=(--device ${DEVICE} --no-systemd
+            --no-tmpfs)\n\tif [ -n \"$METADATA_DEVICE\" ]; then\n\t\tARGS+=(--block.db
+            ${METADATA_DEVICE})\n\tfi\n\tif [ -n \"$WAL_DEVICE\" ]; then\n\t\tARGS+=(--block.wal
+            ${WAL_DEVICE})\n\tfi\n\t# ceph-volume raw mode only supports bluestore
+            so we don't need to pass a store flag\n\tceph-volume \"$CV_MODE\" activate
+            \"${ARGS[@]}\"\nfi\n\n"
+          env:
+          - name: CEPH_VOLUME_DEBUG
+            value: "1"
+          - name: CEPH_VOLUME_SKIP_RESTORECON
+            value: "1"
+          - name: DM_DISABLE_UDEV
+            value: "1"
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: CEPH_ARGS
+            value: -m $(ROOK_CEPH_MON_HOST)
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: activate
+          resources: {}
+          securityContext:
+            privileged: true
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /var/lib/ceph/osd/ceph-5
+            name: activate-osd
+          - mountPath: /dev
+            name: devices
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+        - args:
+          - --verbose
+          - --recursive
+          - ceph:ceph
+          - /var/log/ceph
+          - /var/lib/ceph/crash
+          command:
+          - chown
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: chown-container-data-dir
+          resources: {}
+          securityContext:
+            privileged: true
+            readOnlyRootFilesystem: false
+            runAsUser: 0
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /var/lib/rook
+            name: rook-data
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /dev
+            name: devices
+          - mountPath: /run/udev
+            name: run-udev
+          - mountPath: /var/lib/ceph/osd/ceph-5
+            name: activate-osd
+        nodeSelector:
+          kubernetes.io/hostname: dev-k8s-node04
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        serviceAccount: rook-ceph-osd
+        serviceAccountName: rook-ceph-osd
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - hostPath:
+            path: /var/lib/rook
+            type: ""
+          name: rook-data
+        - configMap:
+            defaultMode: 420
+            items:
+            - key: config
+              mode: 292
+              path: ceph.conf
+            name: rook-config-override
+          name: rook-config-override
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/log
+            type: ""
+          name: rook-ceph-log
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/crash
+            type: ""
+          name: rook-ceph-crash
+        - hostPath:
+            path: /dev
+            type: ""
+          name: devices
+        - hostPath:
+            path: /run/udev
+            type: ""
+          name: run-udev
+        - emptyDir: {}
+          name: activate-osd
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "1"
+    labels:
+      app: rook-ceph-osd
+      ceph-osd-id: "6"
+      ceph-version: 15.2.4-0
+      ceph_daemon_id: "6"
+      ceph_daemon_type: osd
+      failure-domain: dev-k8s-node03
+      osd: "6"
+      portable: "false"
+      rook-version: v1.4.7
+      rook_cluster: rook-ceph
+    name: rook-ceph-osd-6
+    namespace: rook-ceph
+    ownerReferences:
+    - apiVersion: ceph.rook.io/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: CephCluster
+      name: rook-ceph
+    resourceVersion: "569353"
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: rook-ceph-osd
+        ceph-osd-id: "6"
+        rook_cluster: rook-ceph
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: rook-ceph-osd
+          ceph-osd-id: "6"
+          ceph_daemon_id: "6"
+          ceph_daemon_type: osd
+          failure-domain: dev-k8s-node03
+          osd: "6"
+          portable: "false"
+          rook_cluster: rook-ceph
+        name: rook-ceph-osd
+      spec:
+        affinity: {}
+        containers:
+        - args:
+          - --foreground
+          - --id
+          - "6"
+          - --fsid
+          - 46c3c3f8-016f-4d4a-9736-ee17764ab4db
+          - --setuser
+          - ceph
+          - --setgroup
+          - ceph
+          - --crush-location=root=default host=dev-k8s-node03
+          - --log-to-stderr=true
+          - --err-to-stderr=true
+          - --mon-cluster-log-to-stderr=true
+          - '--log-stderr-prefix=debug '
+          - --default-log-to-file=false
+          - --default-mon-cluster-log-to-file=false
+          - --ms-learn-addr-from-peer=false
+          command:
+          - ceph-osd
+          env:
+          - name: ROOK_NODE_NAME
+            value: dev-k8s-node03
+          - name: ROOK_CLUSTER_ID
+            value: d6d5792d-fce0-40df-9c71-9e335505ea9d
+          - name: ROOK_PRIVATE_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: ROOK_PUBLIC_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: POD_NAMESPACE
+            value: rook-ceph
+          - name: ROOK_MON_ENDPOINTS
+            valueFrom:
+              configMapKeyRef:
+                key: data
+                name: rook-ceph-mon-endpoints
+          - name: ROOK_MON_SECRET
+            valueFrom:
+              secretKeyRef:
+                key: mon-secret
+                name: rook-ceph-mon
+          - name: ROOK_CEPH_USERNAME
+            valueFrom:
+              secretKeyRef:
+                key: ceph-username
+                name: rook-ceph-mon
+          - name: ROOK_CEPH_SECRET
+            valueFrom:
+              secretKeyRef:
+                key: ceph-secret
+                name: rook-ceph-mon
+          - name: ROOK_CONFIG_DIR
+            value: /var/lib/rook
+          - name: ROOK_CEPH_CONFIG_OVERRIDE
+            value: /etc/rook/config/override.conf
+          - name: ROOK_FSID
+            valueFrom:
+              secretKeyRef:
+                key: fsid
+                name: rook-ceph-mon
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: ROOK_CRUSHMAP_HOSTNAME
+            value: dev-k8s-node03
+          - name: CEPH_VOLUME_DEBUG
+            value: "1"
+          - name: CEPH_VOLUME_SKIP_RESTORECON
+            value: "1"
+          - name: DM_DISABLE_UDEV
+            value: "1"
+          - name: ROOK_OSDS_PER_DEVICE
+            value: "1"
+          - name: TINI_SUBREAPER
+          - name: CONTAINER_IMAGE
+            value: ceph/ceph:v15.2.4
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_MEMORY_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: limits.memory
+          - name: POD_MEMORY_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.memory
+          - name: POD_CPU_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                divisor: "1"
+                resource: limits.cpu
+          - name: POD_CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                divisor: "0"
+                resource: requests.cpu
+            value: dc6d0065-81d9-4451-a7ce-b3e231e64537
+          - name: ROOK_OSD_ID
+            value: "6"
+          - name: ROOK_OSD_STORE_TYPE
+            value: bluestore
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: CEPH_ARGS
+            value: -m $(ROOK_CEPH_MON_HOST)
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            exec:
+              command:
+              - env
+              - -i
+              - sh
+              - -c
+              - ceph --admin-daemon /run/ceph/ceph-osd.6.asok status
+            failureThreshold: 3
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          name: osd
+          resources: {}
+          securityContext:
+            privileged: true
+            readOnlyRootFilesystem: false
+            runAsUser: 0
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /var/lib/rook
+            name: rook-data
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /dev
+            name: devices
+          - mountPath: /run/udev
+            name: run-udev
+          - mountPath: /var/lib/ceph/osd/ceph-6
+            name: activate-osd
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - command:
+          - /bin/bash
+          - -c
+            active the osd with ceph-volume\nif [[ \"$CV_MODE\" == \"lvm\" ]]; then\n\tTMP_DIR=$(mktemp
+            -d)\n\n\t# activate osd\n\tceph-volume \"$CV_MODE\" activate --no-systemd
+            to a temporary directory\n\t# this is needed because when the init container
+            exits, the tmpfs goes away and its content with it\n\t# this will result
+            in the emptydir to be empty when accessed by the main osd container\n\tcp
+            --verbose --no-dereference \"$OSD_DATA_DIR\"/* \"$TMP_DIR\"/\n\n\t# unmount
+            the tmpfs since we don't need it anymore\n\tumount \"$OSD_DATA_DIR\"\n\n\t#
+            copy back the content of the tmpfs into the original osd directory\n\tcp
+            --verbose --no-dereference \"$TMP_DIR\"/* \"$OSD_DATA_DIR\"\n\n\t# retain
+            ownership of files to the ceph user/group\n\tchown --verbose --recursive
+            ceph:ceph \"$OSD_DATA_DIR\"\n\n\t# remove the temporary directory\n\trm
+            --recursive --force \"$TMP_DIR\"\nelse\n\tARGS=(--device ${DEVICE} --no-systemd
+            --no-tmpfs)\n\tif [ -n \"$METADATA_DEVICE\" ]; then\n\t\tARGS+=(--block.db
+            ${METADATA_DEVICE})\n\tfi\n\tif [ -n \"$WAL_DEVICE\" ]; then\n\t\tARGS+=(--block.wal
+            ${WAL_DEVICE})\n\tfi\n\t# ceph-volume raw mode only supports bluestore
+            so we don't need to pass a store flag\n\tceph-volume \"$CV_MODE\" activate
+            \"${ARGS[@]}\"\nfi\n\n"
+          env:
+          - name: CEPH_VOLUME_DEBUG
+            value: "1"
+          - name: CEPH_VOLUME_SKIP_RESTORECON
+            value: "1"
+          - name: DM_DISABLE_UDEV
+            value: "1"
+          - name: ROOK_CEPH_MON_HOST
+            valueFrom:
+              secretKeyRef:
+                key: mon_host
+                name: rook-ceph-config
+          - name: CEPH_ARGS
+            value: -m $(ROOK_CEPH_MON_HOST)
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: activate
+          resources: {}
+          securityContext:
+            privileged: true
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /var/lib/ceph/osd/ceph-6
+            name: activate-osd
+          - mountPath: /dev
+            name: devices
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+        - args:
+          - --verbose
+          - --recursive
+          - ceph:ceph
+          - /var/log/ceph
+          - /var/lib/ceph/crash
+          command:
+          - chown
+          image: ceph/ceph:v15.2.4
+          imagePullPolicy: IfNotPresent
+          name: chown-container-data-dir
+          resources: {}
+          securityContext:
+            privileged: true
+            readOnlyRootFilesystem: false
+            runAsUser: 0
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /var/lib/rook
+            name: rook-data
+          - mountPath: /etc/ceph
+            name: rook-config-override
+            readOnly: true
+          - mountPath: /var/log/ceph
+            name: rook-ceph-log
+          - mountPath: /var/lib/ceph/crash
+            name: rook-ceph-crash
+          - mountPath: /dev
+            name: devices
+          - mountPath: /run/udev
+            name: run-udev
+          - mountPath: /var/lib/ceph/osd/ceph-6
+            name: activate-osd
+        nodeSelector:
+          kubernetes.io/hostname: dev-k8s-node03
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        serviceAccount: rook-ceph-osd
+        serviceAccountName: rook-ceph-osd
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - hostPath:
+            path: /var/lib/rook
+            type: ""
+          name: rook-data
+        - configMap:
+            defaultMode: 420
+            items:
+            - key: config
+              mode: 292
+              path: ceph.conf
+            name: rook-config-override
+          name: rook-config-override
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/log
+            type: ""
+          name: rook-ceph-log
+        - hostPath:
+            path: /var/lib/rook/rook-ceph/crash
+            type: ""
+          name: rook-ceph-crash
+        - hostPath:
+            path: /dev
+            type: ""
+          name: devices
+        - hostPath:
+            path: /run/udev
+            type: ""
+          name: run-udev
+        - emptyDir: {}
+          name: activate-osd
+kind: List
+metadata:
+  resourceVersion: ""
