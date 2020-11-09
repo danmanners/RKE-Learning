@@ -1,0 +1,25 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: gitlab.danmanners.io
+    kubernetes.io/ingress.class: traefik
+  labels:
+    app: webservice
+  name: gitlab-webservice-traefik
+  namespace: default
+spec:
+  rules:
+    - host: gitlab.danmanners.io
+      http:
+        paths:
+          - backend:
+              serviceName: gitlab-webservice
+              servicePort: 8080
+            path: /admin/sidekiq
+            pathType: ImplementationSpecific
+          - backend:
+              serviceName: gitlab-webservice
+              servicePort: 8181
+            path: /
+            pathType: ImplementationSpecific

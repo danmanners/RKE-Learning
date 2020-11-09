@@ -1,0 +1,4 @@
+# Don't want these files committed
+*.rkestate
+kube_config_cluster.yml
+secrets.yaml
