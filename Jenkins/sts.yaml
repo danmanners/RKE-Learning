@@ -1,0 +1,41 @@
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: jenkins-ce
+spec:
+  selector:
+    matchLabels:
+      run: jenkins-ce
+  serviceName: jenkins-ce
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        run: jenkins-ce
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+      - name: jenkins-ce
+        image: jenkins/jenkins:2.249.3-lts-centos7
+        ports:
+        - containerPort: 8080
+          name: web
+        - containerPort: 50000
+          name: jnlp-agents
+        volumeMounts:
+        - name: jenkins-home
+          mountPath: /var/jenkins_home
+        resources:
+          limits:
+            cpu: "4"
+          requests:
+            cpu: "1"
+  volumeClaimTemplates:
+  - metadata:
+      name: jenkins-home
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 20Gi
